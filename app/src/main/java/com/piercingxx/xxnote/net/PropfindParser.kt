@@ -1,0 +1,125 @@
+package com.piercingxx.xxnote.net
+
+import com.piercingxx.xxnote.sync.RemoteEntry
+import java.io.UnsupportedEncodingException
+import java.net.URLDecoder
+import org.xmlpull.v1.XmlPullParser
+import org.xmlpull.v1.XmlPullParserFactory
+
+/**
+ * A structurally broken multistatus body (malformed or truncated XML). An
+ * [IOException] so it rides WebDavClient's documented failure surface: the
+ * engine treats it as a failed listing, NEVER as an empty vault.
+ */
+class ParseException(message: String, cause: Throwable? = null) :
+    java.io.IOException(message, cause)
+
+/**
+ * Parses a WebDAV 207 Multi-Status body into [RemoteEntry] rows, using
+ * Android's built-in XmlPullParser (org.xmlpull.v1 — zero dependencies,
+ * D17).
+ *
+ * Failure direction is split by scope:
+ * - **Per entry** — one broken href (an undecodable %-sequence, say) skips
+ *   just that entry; the healthy entries around it still parse. Degrade,
+ *   never discard the vault.
+ * - **Whole document** — a structural XML failure (truncated body, not-XML
+ *   bytes) throws [ParseException]; an unparseable 207 must never masquerade
+ *   as "empty folder" to the engine's trash-safety gate.
+ *
+ * Namespace prefixes are tolerated in any spelling (`D:`, `d:`, or none)
+ * because only element local names matter. Entries whose `href` ends with
+ * `/` are collections and are skipped — the Depth:1 listing includes the
+ * folder itself.
+ *
+ * ETags are kept VERBATIM (quoting marks and any `W/` weak marker intact):
+ * the value goes back on the wire inside `If-Match` exactly as the server
+ * produced it, so this parser must not "normalize" it. Weakness is visible
+ * to callers in the raw string; RemoteEntry deliberately carries no separate
+ * weakness flag.
+ */
+object PropfindParser {
+
+    /**
+     * Parse a multistatus document. Structural XML trouble throws
+     * [ParseException]; only individual bad entries are skipped.
+     */
+    fun parse(xml: String): List<RemoteEntry> {
+        // Not-XML bytes (an empty or HTML error body wearing a 207): the
+        // pull parser would accept some of these as an empty document, which
+        // must never masquerade as an empty vault.
+        if (!xml.trimStart().startsWith("<")) {
+            throw ParseException("multistatus body is not XML")
+        }
+        return try {
+            val factory = XmlPullParserFactory.newInstance()
+            factory.isNamespaceAware = true
+            val parser = factory.newPullParser()
+            parser.setInput(java.io.StringReader(xml))
+            parseResponses(parser)
+        } catch (e: Exception) {
+            throw ParseException("unparseable multistatus body", e)
+        }
+    }
+
+    private fun parseResponses(parser: XmlPullParser): List<RemoteEntry> {
+        val entries = mutableListOf<RemoteEntry>()
+        var href: String? = null
+        var etag: String? = null
+        var size: Long? = null
+
+        var event = parser.eventType
+        while (event != XmlPullParser.END_DOCUMENT) {
+            when (event) {
+                XmlPullParser.START_TAG -> when (parser.localName()) {
+                    "response" -> {
+                        href = null
+                        etag = null
+                        size = null
+                    }
+                    "href" -> href = parser.nextText()
+                    "getetag" -> etag = parser.nextText()
+                    "getcontentlength" ->
+                        size = parser.nextText()?.trim()?.toLongOrNull()
+                }
+                XmlPullParser.END_TAG -> if (parser.localName() == "response") {
+                    entry(href, etag, size)?.let(entries::add)
+                }
+            }
+            event = parser.next()
+        }
+        return entries
+    }
+
+    private fun entry(href: String?, etag: String?, size: Long?): RemoteEntry? {
+        if (href == null || href.endsWith("/")) return null
+        val segment = href.substringBefore('?').trimEnd('/').substringAfterLast('/')
+        if (segment.isEmpty()) return null
+        // One undecodable segment skips ONE entry, not the listing.
+        val fileName = try {
+            decodeSegment(segment)
+        } catch (_: IllegalArgumentException) {
+            return null
+        }
+        return RemoteEntry(
+            fileName = fileName,
+            etag = etag?.trim()?.ifEmpty { null },
+            sizeBytes = size,
+        )
+    }
+
+    /**
+     * Percent-decoding for one path segment. `+` is preserved as a literal
+     * plus (it means space only in query strings), while `%20`, `%2B`, CJK
+     * escapes, etc. decode normally — DSM %-encodes every href it returns.
+     */
+    private fun decodeSegment(segment: String): String =
+        try {
+            URLDecoder.decode(segment.replace("+", "%2B"), "UTF-8")
+        } catch (_: UnsupportedEncodingException) {
+            segment
+        }
+
+    /** Local name whether or not the factory processed namespaces. */
+    private fun XmlPullParser.localName(): String = name.substringAfter(':')
+}

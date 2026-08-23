@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- White note glyph on the Ink background. Centered in the adaptive-icon
+     safe zone: glyph spans 40–68 of the 108dp viewport (inner ~66dp). -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+
+    <!-- Rounded-square note outline -->
+    <path
+        android:pathData="M45,38 L63,38 A5,5 0 0 1 68,43 L68,65 A5,5 0 0 1 63,70 L45,70 A5,5 0 0 1 40,65 L40,43 A5,5 0 0 1 45,38 Z"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="4"
+        android:fillColor="#00000000"/>
+
+    <!-- Text lines -->
+    <path
+        android:pathData="M46,52 L62,52"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"/>
+    <path
+        android:pathData="M46,59 L56,59"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="3"
+        android:strokeLineCap="round"/>
+
+</vector>

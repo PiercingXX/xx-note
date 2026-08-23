@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  One host means one host (R8). Cleartext is forbidden everywhere; TLS
+  anchors to the system store only, so the Tailscale-issued Let's Encrypt
+  certificate on the NAS validates with no pinning and no user CA.
+
+  ⚠ REPLACE AT SETUP (WS6): "nas.your-tailnet.ts.net" below is a placeholder.
+  Swap it for the operator's real MagicDNS host. Never widen this file:
+  no extra domains, no user CAs, no cleartext exceptions.
+-->
+<network-security-config>
+
+    <base-config cleartextTrafficPermitted="false">
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </base-config>
+
+    <domain-config cleartextTrafficPermitted="false">
+        <domain includeSubdomains="false">nas.your-tailnet.ts.net</domain>
+        <trust-anchors>
+            <certificates src="system"/>
+        </trust-anchors>
+    </domain-config>
+
+</network-security-config>

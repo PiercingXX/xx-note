@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+
+    <!-- The short list is the claim (R8): one network permission, one camera
+         permission, and nothing that runs on its own schedule except a sync. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+
+    <!-- androidx.work merges infrastructure permissions into every consumer.
+         FOREGROUND_SERVICE is genuinely unused here: expedited syncs fall back
+         to regular work (RUN_AS_NON_EXPEDITED_WORK_REQUEST), never a foreground
+         service (§4.4) — stripped to keep the audit line honest.
+         WAKE_LOCK and RECEIVE_BOOT_COMPLETED remain: they ARE WorkManager's
+         boot-persistence mechanism (design §13 wanted exactly this via a
+         custom receiver; WM provides it natively). OPERATOR VETO POINT: if the
+         four-permission claim must be absolute, remove these two too and
+         accept that periodic sync waits until first app open after a reboot. -->
+    <uses-permission
+        android:name="android.permission.FOREGROUND_SERVICE"
+        tools:node="remove"/>
+    <!-- deliberately NO storage permissions of any kind (D14): the vault lives
+         in filesDir, app-private, invisible to Storage Scopes -->
+    <!-- deliberately NO exact alarms — reminders are a v1 non-goal -->
+    <!-- Camera is optional (§13): requested at first capture, app fully usable
+         when denied — so the hardware feature must not be implied-required. -->
+    <uses-feature
+        android:name="android.hardware.camera"
+        android:required="false"/>
+
+    <application
+        android:label="@string/app_name"
+        android:icon="@mipmap/ic_launcher"
+        android:theme="@style/Theme.XxNote"
+        android:usesCleartextTraffic="false"
+        android:networkSecurityConfig="@xml/network_security_config">
+
+        <!-- Single launcher activity; Compose only (D11). No exported
+             components beyond this one (design §13). -->
+        <activity
+            android:name=".MainActivity"
+            android:launchMode="singleTop"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.MAIN"/>
+                <category android:name="android.intent.category.LAUNCHER"/>
+            </intent-filter>
+        </activity>
+
+        <!-- Arriving in later workstreams:
+             SyncWorker + AttachmentWorker under WorkManager (WS5),
+             FileProvider for share-out (WS7).
+             Deliberately NO BootReceiver — WorkManager persists periodic work
+             across reboots; keeps the four-permission claim intact. -->
+
+    </application>
+
+</manifest>

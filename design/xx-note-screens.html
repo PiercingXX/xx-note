@@ -1,0 +1,543 @@
+<title>XX-Note Screen Spec</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=JetBrains+Mono:wght@300;400;500&display=swap">
+<style>
+
+/* ── PiercingXX tokens · piercingxx-branding/tokens/colors.json ───────────
+   Signal #FFFFFF is RESERVED. Body type caps at the 90% stop. One accent.
+   Single-theme by brand mandate: AMOLED black is the product. */
+:root{
+  --ink:#000000; --signal:#FFFFFF;
+  --emph-bg:#FFFFFF; --emph-fg:#000000;
+  --ink-raised:#09090B; --graphite:#131316; --slate:#18181B;
+  --line:rgba(255,255,255,.10);
+  --shade:rgba(255,255,255,.25);
+  --muted:rgba(255,255,255,.50);
+  --strong:rgba(255,255,255,.80);
+  --text:rgba(255,255,255,.90);
+  --warn:#FDBA74; --error:#FF6767;
+  --display:"Space Mono",ui-monospace,monospace;
+  --body:"JetBrains Mono",ui-monospace,SFMono-Regular,monospace;
+}
+
+*{box-sizing:border-box}
+body{
+  margin:0; background:var(--ink); color:var(--strong);
+  font-family:var(--body); font-weight:400; font-size:15px; line-height:1.7;
+  -webkit-font-smoothing:antialiased;
+}
+.wrap{max-width:1180px;margin:0 auto;padding:0 28px}
+
+.eyebrow{font-size:11px;letter-spacing:.22em;text-transform:uppercase;color:var(--muted);margin:0 0 14px}
+h1,h2,h3{font-family:var(--display);font-weight:400;color:var(--text);text-wrap:balance;margin:0}
+h1{font-size:clamp(34px,6vw,62px);line-height:1.02;letter-spacing:-.02em}
+h2{font-size:clamp(22px,3vw,30px);line-height:1.18;letter-spacing:-.01em}
+h3{font-size:16px}
+p{margin:0 0 16px;max-width:66ch}
+code{font-family:var(--body);font-size:.88em;color:var(--text);background:rgba(255,255,255,.07);padding:1px 5px;border-radius:3px}
+
+section{padding:76px 0;border-top:1px solid var(--line)}
+.sec-head{display:flex;flex-direction:column;gap:8px;margin-bottom:40px}
+.sec-head p{color:var(--muted);margin:0}
+
+/* ── hero ── */
+.hero{padding:84px 0 76px}
+.hero .lede{font-size:17px;color:var(--strong);max-width:56ch}
+.hero-meta{display:flex;flex-wrap:wrap;gap:8px;margin-top:26px}
+.chip{font-size:11px;letter-spacing:.1em;text-transform:uppercase;border:1px solid var(--line);border-radius:2px;padding:5px 10px;color:var(--muted)}
+.chip.on{background:var(--emph-bg);color:var(--emph-fg);border-color:var(--emph-bg)}
+
+/* ── sync table ── */
+.polwrap{overflow-x:auto}
+.pol{width:100%;min-width:700px;border-collapse:collapse;font-size:13px}
+.pol th{font-weight:400;font-size:10px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);text-align:left;padding:0 14px 10px;border-bottom:1px solid var(--line)}
+.pol td{padding:11px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+.pol .n{color:var(--shade);font-variant-numeric:tabular-nums;width:2ch}
+.pol .cond{color:var(--text);white-space:nowrap}
+.pol .v{white-space:nowrap;font-family:var(--display)}
+.pol .v.keep{color:var(--signal)}
+.pol .v.calm{color:var(--muted)}
+.pol .v.fork{color:var(--error)}
+.pol .tone{color:var(--muted)}
+.pol .tone b{color:var(--text);font-weight:400}
+.polnote{font-size:12.5px;color:var(--muted);max-width:70ch;margin-top:18px}
+
+/* ── file format block ── */
+.file{background:var(--ink-raised);border:1px solid var(--line);border-radius:10px;padding:20px 22px;overflow-x:auto;font-size:12.5px;line-height:1.85;color:var(--muted);white-space:pre;margin:0}
+.file b{color:var(--text);font-weight:400}
+.file i{font-style:normal;color:var(--shade)}
+.file u{text-decoration:none;color:var(--signal)}
+.cols2{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:22px;align-items:start}
+
+/* ── phone frames (xx-vitals rail conventions) ── */
+.rail{display:flex;gap:26px;overflow-x:auto;padding:4px 0 22px;scrollbar-width:thin}
+.dev{flex:none;width:288px;margin:0}
+.dev figcaption{margin-top:14px;font-size:12px;color:var(--muted);letter-spacing:.06em;text-transform:uppercase}
+.dev figcaption b{color:var(--text);font-weight:400;font-family:var(--display);display:block;font-size:14px;letter-spacing:0;text-transform:none;margin-bottom:3px}
+.screen{width:288px;height:624px;background:var(--ink);border:1px solid var(--line);border-radius:22px;overflow:hidden;display:flex;flex-direction:column;position:relative}
+.sbar{display:flex;justify-content:space-between;padding:9px 15px 4px;font-size:9px;color:var(--muted);letter-spacing:.04em;font-variant-numeric:tabular-nums}
+.body{flex:1;overflow:hidden;display:flex;flex-direction:column}
+
+/* top bar */
+.topbar{display:flex;align-items:center;gap:10px;margin:6px 12px 10px;padding:9px 12px;border:1px solid var(--line);border-radius:20px}
+.topbar i{font-style:normal;font-size:12px;color:var(--shade)}
+.topbar span{flex:1;font-size:11px;color:var(--shade)}
+
+/* grid */
+.gsec{padding:2px 14px 6px;font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--muted)}
+.cards{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:0 12px 8px;align-content:start}
+.card{border:1px solid var(--line);border-radius:9px;padding:9px 10px;background:var(--ink-raised);overflow:hidden}
+.card.t2{background:var(--graphite)}
+.card.t3{background:var(--slate)}
+.card.t4{background:var(--ink-raised);border-left:2px solid var(--shade)}
+.card b{display:block;font-family:var(--display);font-weight:400;font-size:11.5px;color:var(--text);margin-bottom:4px;line-height:1.3}
+.card p{margin:0;font-size:9.5px;color:var(--muted);line-height:1.55}
+.card .ck{font-size:9.5px;color:var(--muted);line-height:1.7}
+.card .ck u{text-decoration:none;color:var(--shade)}
+.card .meta{display:flex;gap:5px;margin-top:7px;align-items:center}
+.card .lab{font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--shade);border:1px solid var(--line);border-radius:2px;padding:1px 5px}
+.card .prog{margin-left:auto;font-size:8.5px;color:var(--shade);font-variant-numeric:tabular-nums;font-family:var(--display)}
+.card .pin{float:right;color:var(--signal);font-size:9px}
+.card .img{height:44px;background:repeating-linear-gradient(135deg,rgba(255,255,255,.05) 0 6px,transparent 6px 12px);border:1px solid var(--line);border-radius:4px;margin-bottom:6px}
+.card .badge{display:inline-block;font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--error);border:1px solid var(--error);border-radius:2px;padding:1px 5px;margin-top:6px}
+
+/* capture bar */
+.capture{margin-top:auto;display:flex;align-items:center;gap:14px;padding:12px 16px;border-top:1px solid var(--line);background:var(--ink)}
+.capture span{flex:1;font-size:11px;color:var(--shade)}
+.capture i{font-style:normal;font-size:13px;color:var(--muted)}
+
+/* editor */
+.ed{flex:1;display:flex;flex-direction:column;padding:0 16px;overflow:hidden}
+.ed .ttl{font-family:var(--display);font-weight:400;font-size:20px;color:var(--text);margin-top:14px;line-height:1.25}
+.ed .lb{display:flex;gap:5px;margin-top:9px}
+.ed .lb span{font-size:7.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--shade);border:1px solid var(--line);border-radius:2px;padding:1px 6px}
+.ed .ln{display:flex;gap:9px;align-items:baseline;font-size:11.5px;color:var(--text);padding:5px 0}
+.ed .ln i{font-style:normal;flex:none;width:13px;height:13px;border:1px solid var(--shade);border-radius:2px;display:grid;place-items:center;font-size:8px;color:var(--ink)}
+.ed .ln.done{color:var(--shade);text-decoration:line-through}
+.ed .ln.done i{background:var(--signal);border-color:var(--signal);color:var(--ink)}
+.ed .cur{border-left:1px solid var(--signal);padding-left:0;margin-left:-1px}
+.ed .h2l{font-family:var(--display);font-size:13px;color:var(--text);padding:8px 0 2px}
+.ed .foot{margin-top:auto;display:flex;gap:0;justify-content:space-between;padding:11px 0 14px;border-top:1px solid var(--line);color:var(--muted);font-size:13px}
+.ed .saved{font-size:8.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--shade);padding:6px 0}
+
+/* drawer */
+.dr{padding:16px 0 0}
+.dr .brand{font-family:var(--display);font-size:16px;color:var(--text);padding:0 16px 14px;border-bottom:1px solid var(--line)}
+.drow{display:flex;gap:11px;align-items:center;padding:10px 16px;font-size:11.5px;color:var(--muted)}
+.drow i{font-style:normal;width:14px;font-size:11px;color:var(--shade)}
+.drow.on{background:var(--emph-bg);color:var(--emph-fg)}
+.drow.on i{color:var(--emph-fg)}
+.drow em{font-style:normal;margin-left:auto;font-size:9px;color:var(--shade);font-variant-numeric:tabular-nums}
+.drow.on em{color:var(--emph-fg)}
+.drsec{padding:14px 16px 5px;font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--shade)}
+
+/* sync screen */
+.state{margin:10px 14px 4px;border:1px solid var(--line);border-radius:10px;padding:12px 13px}
+.state em{font-style:normal;font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted);display:block}
+.state b{display:block;font-family:var(--display);font-weight:400;font-size:13px;color:var(--text);margin-top:5px}
+.state span{display:block;font-size:9.5px;color:var(--muted);margin-top:3px;font-variant-numeric:tabular-nums}
+.state.bad{border-color:var(--error)}
+.state.bad b{color:var(--error)}
+.ssec{padding:13px 15px 4px;font-size:8.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--muted)}
+.srow{display:flex;gap:9px;padding:7px 15px;font-size:10.5px;align-items:baseline;border-bottom:1px solid var(--line)}
+.srow i{font-style:normal;color:var(--shade);width:11px;flex:none}
+.srow b{color:var(--text);font-weight:400;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.srow span{color:var(--muted);white-space:nowrap;font-variant-numeric:tabular-nums;font-size:9px}
+.srow .ok{color:var(--muted)}
+.srow .fk{color:var(--error)}
+.tallies{display:flex;gap:0;margin:12px 15px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.tallies div{flex:1;padding:10px 0;text-align:center;border-right:1px solid var(--line)}
+.tallies div:last-child{border-right:0}
+.tallies b{display:block;font-family:var(--display);font-weight:400;font-size:17px;color:var(--text);font-variant-numeric:tabular-nums}
+.tallies em{font-style:normal;font-size:7.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--shade)}
+.testbtn{margin:4px 15px 14px;border:1px solid var(--line);border-radius:10px;padding:10px 12px}
+.testbtn em{font-style:normal;font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:block}
+.testbtn b{font-family:var(--display);font-weight:400;font-size:12px;color:var(--text);display:block;margin-top:4px}
+.testbtn span{font-size:9px;color:var(--muted);display:block;margin-top:3px}
+
+/* conflict resolve */
+.cf{padding:14px 15px 0}
+.cf .k{font-size:8.5px;letter-spacing:.18em;text-transform:uppercase;color:var(--error)}
+.cf h4{margin:8px 0 0;font-family:var(--display);font-weight:400;font-size:15px;color:var(--text)}
+.cf .sub{font-size:9.5px;color:var(--muted);margin-top:5px}
+.diff{margin:12px 0 0;border:1px solid var(--line);border-radius:8px;overflow:hidden;font-size:10px;line-height:1.75}
+.diff div{padding:4px 10px;border-bottom:1px solid var(--line);color:var(--muted)}
+.diff div:last-child{border-bottom:0}
+.diff .mine{background:rgba(255,255,255,.05);color:var(--text)}
+.diff .theirs{background:rgba(255,255,255,.02);color:var(--text)}
+.diff .hdr{font-size:7.5px;letter-spacing:.16em;text-transform:uppercase;color:var(--shade);background:none}
+.cfbtns{padding:12px 15px 16px;margin-top:auto}
+.cfbtns .p{background:var(--emph-bg);color:var(--emph-fg);border-radius:10px;padding:12px 0;text-align:center;font-family:var(--display);font-size:12px}
+.cfbtns .s{border:1px solid var(--shade);color:var(--strong);border-radius:10px;padding:10px 0;text-align:center;font-size:11px;margin-top:8px}
+
+/* setup */
+.setrow{display:flex;gap:10px;padding:11px 15px;border-bottom:1px solid var(--line);align-items:flex-start;font-size:11px}
+.setrow i{font-style:normal;flex:none;width:2ch}
+.setrow .ok{color:var(--text)}
+.setrow .warn{color:var(--warn)}
+.setrow .off{color:var(--shade)}
+.setrow .t{flex:1}
+.setrow .t b{display:block;color:var(--text);font-weight:400;font-size:11.5px}
+.setrow .t span{font-size:9.5px;color:var(--muted)}
+
+/* trash */
+.trow{display:flex;gap:10px;padding:10px 15px;border-bottom:1px solid var(--line);align-items:center}
+.trow b{flex:1;font-weight:400;font-size:11.5px;color:var(--muted)}
+.trow span{font-size:9px;color:var(--shade);font-variant-numeric:tabular-nums}
+
+/* notes under sections */
+.notes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px;margin-top:34px}
+.note{background:var(--ink-raised);border:1px solid var(--line);border-radius:10px;padding:16px 18px}
+.note h3{font-size:13px;margin-bottom:6px}
+.note p{font-size:12.5px;color:var(--muted);margin:0}
+.note p b{color:var(--text);font-weight:400}
+
+footer{padding:44px 0 64px;border-top:1px solid var(--line);font-size:12px;color:var(--shade)}
+footer .wrap{display:flex;justify-content:space-between;gap:20px;flex-wrap:wrap}
+</style>
+
+<div class="wrap hero">
+  <p class="eyebrow">PiercingXX · design/xx-note-screens.html · spec, nothing built</p>
+  <h1>XX-Note</h1>
+  <p class="lede" style="margin-top:20px">The notes app that saves nothing but Markdown. Keep's front end —
+  card grid, one-tap capture, checklists, labels, archive — over a folder of
+  <code>.md</code> files on your own Synology, reached over Tailscale. Delete
+  the app and lose nothing.</p>
+  <div class="hero-meta">
+    <span class="chip on">AMOLED black</span>
+    <span class="chip">one host · no third party</span>
+    <span class="chip">vault is truth</span>
+    <span class="chip">Pixel 9 Pro · GrapheneOS · SDK 37</span>
+    <span class="chip">Compose</span>
+  </div>
+</div>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">01 · The sync table</p>
+      <h2>First match wins, and no row can lose you text</h2>
+      <p>Evaluated per note by a pure function over three snapshots — what the
+      server had at the last agreement, what the phone has now, what the server
+      has now. No Android imports, no clocks, no timestamps.</p>
+    </div>
+    <div class="polwrap"><table class="pol">
+      <tr><th></th><th>Local</th><th>Remote</th><th>Verdict</th><th>What happens</th></tr>
+      <tr><td class="n">1</td><td class="cond">absent, no base</td><td class="cond">present</td><td class="v calm">Pull</td><td class="tone">GET, write the mirror, record base</td></tr>
+      <tr><td class="n">2</td><td class="cond">present, no base</td><td class="cond">absent</td><td class="v calm">Push</td><td class="tone">PUT with <b>If-None-Match: *</b></td></tr>
+      <tr><td class="n">3</td><td class="cond">clean</td><td class="cond">clean</td><td class="v calm">Nothing</td><td class="tone">—</td></tr>
+      <tr><td class="n">4</td><td class="cond">dirty</td><td class="cond">clean</td><td class="v calm">Push</td><td class="tone">PUT with <b>If-Match</b> on the base ETag</td></tr>
+      <tr><td class="n">5</td><td class="cond">clean</td><td class="cond">dirty</td><td class="v calm">Pull</td><td class="tone">GET, overwrite the mirror, adopt the ETag</td></tr>
+      <tr><td class="n">6</td><td class="cond">dirty</td><td class="cond">dirty</td><td class="v keep">Merge</td><td class="tone">diff3 against base — clean merge pushes; <b>any conflicted hunk forks</b></td></tr>
+      <tr><td class="n">7</td><td class="cond">trashed</td><td class="cond">clean</td><td class="v calm">Trash</td><td class="tone">MOVE to <b>.xxnote/trash/</b> — never an unlink</td></tr>
+      <tr><td class="n">8</td><td class="cond">trashed</td><td class="cond">dirty</td><td class="v keep">Resurrect</td><td class="tone">the edit wins; the deleted copy stays in trash</td></tr>
+      <tr><td class="n">9</td><td class="cond">clean</td><td class="cond">gone</td><td class="v calm">Trash local</td><td class="tone">moved to local trash, recoverable for 7 days</td></tr>
+      <tr><td class="n">10</td><td class="cond">dirty</td><td class="cond">gone</td><td class="v keep">Resurrect</td><td class="tone">re-PUT — <b>an edit always outranks a delete</b></td></tr>
+      <tr><td class="n">11</td><td class="cond">present, no base</td><td class="cond">present, differs</td><td class="v fork">Fork</td><td class="tone">two files claim one id — keep both, flag it</td></tr>
+      <tr><td class="n">12</td><td class="cond" colspan="2">If-Match rejected mid-push</td><td class="v calm">Re-plan</td><td class="tone">re-read, re-enter at row 1; after 3 rounds, fork</td></tr>
+    </table></div>
+    <p class="polnote"><b>The invariant, tested as a property over every row:</b> no verdict
+    reduces the bytes you can still open. Deletes become trash, conflicts become
+    two visible notes, every ambiguity resolves toward more text. There is no
+    timestamp-based resolution anywhere in the app — not as a fallback, not as a
+    setting — because “newest wins” is how sync engines lose an afternoon of
+    writing without telling anyone.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">02 · The storage format</p>
+      <h2>One note is one file, and that is the whole schema</h2>
+      <p>The filename is cosmetic. Identity is the <code>id</code>, so a note
+      renamed in Obsidian is still the same note.</p>
+    </div>
+    <div class="cols2">
+      <pre class="file"><i>Notes/</i>
+├── <b>01J9F2K3M4N5P6Q7R8S9T0V1W2-grocery-list.md</b>
+├── 01J9F2K8ZZ1A2B3C4D5E6F7G8H-standup.md
+├── <i>attachments/</i>
+│   └── 3f9a2c81b4e07d65.jpg
+└── <i>.xxnote/</i>
+    ├── <i>trash/</i>
+    │   └── 01J9EX…-old-idea.md
+    └── device.json</pre>
+      <pre class="file"><i>---</i>
+<b>id</b>: <u>01J9F2K3M4N5P6Q7R8S9T0V1W2</u>
+<b>title</b>: Grocery list
+<b>created</b>: 2026-08-23T10:04:12Z
+<b>updated</b>: 2026-08-23T10:07:55Z
+<b>pinned</b>: true
+<b>labels</b>: [home, errands]
+<b>type</b>: checklist
+<i>---</i>
+
+- [ ] oat milk
+- [ ] coffee, the dark one
+- [x] bin bags</pre>
+    </div>
+    <div class="notes">
+      <div class="note"><h3>Obsidian reads it already</h3><p>Labels land as tags, attachments resolve as relative links, and the vault opens with <b>no import step</b>. Interop is inherited, not built.</p></div>
+      <div class="note"><h3>Unknown keys survive</h3><p>XX-Note owns eight frontmatter keys and rewrites nothing else byte-for-byte. A plugin's metadata is <b>preserved through every save</b>.</p></div>
+      <div class="note"><h3>Attachments can't conflict</h3><p>Content-addressed by SHA-256, so they are immutable. The binary sync problem collapses to <b>“does it exist over there.”</b> Dedup is free.</p></div>
+      <div class="note"><h3>Malformed YAML is body text</h3><p>Never discarded, never silently “repaired.” The note still opens; the sync screen flags it. <b>A parser bug must not eat a note.</b></p></div>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">03 · Screens</p>
+      <h2>Keep's hands, one honesty surface, one setup flow</h2>
+      <p>Compose, AMOLED monochrome. Keep's twelve colours become six surface
+      tones on the black ladder — the brand rule is older than this app.</p>
+    </div>
+
+    <div class="rail">
+
+      <!-- GRID -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar"><i>☰</i><span>Search your notes</span><i>▦</i></div>
+            <div class="gsec">Pinned</div>
+            <div class="cards">
+              <div class="card t2"><span class="pin">★</span><b>Grocery list</b>
+                <div class="ck"><u>☐</u> oat milk<br><u>☐</u> coffee, dark<br><u>☑</u> bin bags</div>
+                <div class="meta"><span class="lab">home</span><span class="prog">1 / 3</span></div></div>
+              <div class="card t4"><span class="pin">★</span><b>Bike service</b>
+                <p>rear brake rubbing at full lock — mention the headset creak too</p>
+                <div class="meta"><span class="lab">errands</span></div></div>
+            </div>
+            <div class="gsec">Others</div>
+            <div class="cards">
+              <div class="card"><b>Standup</b><p>blocked on the cert renewal; ask about staging DNS before Thu</p>
+                <div class="meta"><span class="lab">work</span></div></div>
+              <div class="card t3"><div class="img"></div><b>Paint chip</b><p>the warm grey, second from left</p></div>
+              <div class="card"><b>Reading</b>
+                <div class="ck"><u>☐</u> Le Guin, Dispossessed<br><u>☑</u> Solaris</div>
+                <div class="meta"><span class="prog">1 / 2</span></div></div>
+              <div class="card t2"><b>Loft measurements</b><p>2410 × 1870, joist at 400 centres</p>
+                <span class="badge">conflict · 2 copies</span></div>
+            </div>
+            <div class="capture"><span>Take a note…</span><i>☑</i><i>◉</i></div>
+          </div>
+        </div>
+        <figcaption><b>Grid</b>capture bar, not a FAB — the thumb is already there</figcaption>
+      </figure>
+
+      <!-- EDITOR -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar" style="border:0;margin-bottom:0;padding-left:0"><i>←</i><span></span><i>★</i><i>▤</i></div>
+            <div class="ed">
+              <div class="ttl">Grocery list</div>
+              <div class="lb"><span>home</span><span>errands</span><span>+</span></div>
+              <div style="margin-top:12px">
+                <div class="ln"><i></i>oat milk</div>
+                <div class="ln"><i></i>coffee, the dark one</div>
+                <div class="ln done"><i>✓</i>bin bags</div>
+                <div class="ln"><i></i><span style="color:var(--shade)">List item</span></div>
+              </div>
+              <div class="h2l">## for the weekend</div>
+              <div class="ln" style="padding-top:2px">something with <b style="font-weight:400;color:var(--text)">chorizo</b>, ask R</div>
+              <div class="saved">edited 09:41 · saved · queued to sync</div>
+              <div class="foot"><i style="font-style:normal">▣</i><i style="font-style:normal">◑</i><i style="font-style:normal">▤</i><i style="font-style:normal">◉</i><i style="font-style:normal">⋯</i></div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Editor</b>Markdown renders in place — there is no preview toggle</figcaption>
+      </figure>
+
+      <!-- DRAWER -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="dr">
+              <div class="brand">XX-Note</div>
+              <div class="drow on"><i>▤</i>Notes<em>128</em></div>
+              <div class="drsec">Labels</div>
+              <div class="drow"><i>#</i>home<em>31</em></div>
+              <div class="drow"><i>#</i>work<em>44</em></div>
+              <div class="drow"><i>#</i>errands<em>12</em></div>
+              <div class="drow"><i>#</i>recipes<em>19</em></div>
+              <div class="drow" style="color:var(--shade)"><i>+</i>Edit labels</div>
+              <div class="drsec">Elsewhere</div>
+              <div class="drow"><i>▢</i>Archive<em>60</em></div>
+              <div class="drow"><i>◌</i>Trash<em>4</em></div>
+              <div class="drow"><i>⇅</i>Sync<em style="color:var(--error)">2</em></div>
+              <div class="drow"><i>⚙</i>Settings</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Drawer</b>labels are flat tags, not folders — Keep's ruling, kept</figcaption>
+      </figure>
+
+      <!-- SYNC -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar" style="border:0;margin-bottom:2px;padding-left:0"><i>←</i><span style="color:var(--text);font-size:13px;font-family:var(--display)">Sync</span></div>
+            <div class="state">
+              <em>Connected</em>
+              <b>nas.tailnet.ts.net</b>
+              <span>last sync 09:38 · 128 notes · 41.2 MB cached</span>
+            </div>
+            <div class="tallies">
+              <div><b>96</b><em>synced</em></div>
+              <div><b>7</b><em>merged</em></div>
+              <div><b>2</b><em>forked</em></div>
+            </div>
+            <div class="ssec">Waiting to send · 1</div>
+            <div class="srow"><i>↑</i><b>Grocery list</b><span class="ok">queued 09:41</span></div>
+            <div class="ssec">Conflicts · 2</div>
+            <div class="srow"><i>⑂</i><b>Loft measurements</b><span class="fk">resolve</span></div>
+            <div class="srow"><i>⑂</i><b>Standup</b><span class="fk">resolve</span></div>
+            <div class="ssec">Recent</div>
+            <div class="srow"><i>⇵</i><b>Bike service · merged</b><span>09:38</span></div>
+            <div class="srow"><i>↓</i><b>Paint chip · pulled</b><span>09:38</span></div>
+            <div class="srow"><i>◌</i><b>old-idea · trashed remotely</b><span>09:22</span></div>
+            <div class="testbtn"><em>Test connection</em><b>PROPFIND /home/Drive/Notes/</b><span>207 Multi-Status · 128 entries · 340 ms · strong ETags</span></div>
+          </div>
+        </div>
+        <figcaption><b>Sync</b>the product — no spinner, no “synced” that isn't</figcaption>
+      </figure>
+
+      <!-- SYNC OFFLINE -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar" style="border:0;margin-bottom:2px;padding-left:0"><i>←</i><span style="color:var(--text);font-size:13px;font-family:var(--display)">Sync</span></div>
+            <div class="state bad">
+              <em>Network permission off</em>
+              <b>Nothing is leaving this device</b>
+              <span>GrapheneOS · last sync yesterday 18:04</span>
+            </div>
+            <div style="padding:12px 15px;font-size:10.5px;color:var(--muted);line-height:1.7">
+              Everything still works. Notes, search, labels, checklists and
+              attachments already on the phone are all local. <b style="color:var(--text);font-weight:400">6&nbsp;notes are
+              waiting</b> and will send when you turn the permission back on.
+            </div>
+            <div class="ssec">Waiting to send · 6</div>
+            <div class="srow"><i>↑</i><b>Grocery list</b><span class="ok">18:41</span></div>
+            <div class="srow"><i>↑</i><b>Standup</b><span class="ok">18:12</span></div>
+            <div class="srow"><i>↑</i><b>Reading</b><span class="ok">17:50</span></div>
+            <div class="srow"><i>◌</i><b>scratch · trashed</b><span class="ok">17:44</span></div>
+            <div class="srow"><i>↑</i><b>Loft measurements</b><span class="ok">yesterday</span></div>
+            <div class="srow"><i>↑</i><b>Paint chip</b><span class="ok">yesterday</span></div>
+            <div class="testbtn" style="border-color:var(--shade)"><em>Also seen as</em><b>Tailnet unreachable</b><span>Tailscale off, another VPN active, or XX-Note excluded by split tunnelling — identical from here, so it says one thing</span></div>
+          </div>
+        </div>
+        <figcaption><b>Sync · degraded</b>revoking the network permission is a supported state</figcaption>
+      </figure>
+
+      <!-- CONFLICT -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body" style="display:flex;flex-direction:column">
+            <div class="cf">
+              <div class="k">Conflict · both sides edited</div>
+              <h4>Loft measurements</h4>
+              <div class="sub">Merged cleanly except one line. Both versions are kept
+              as real notes until you decide — nothing was overwritten.</div>
+              <div class="diff">
+                <div class="hdr">merged automatically</div>
+                <div>2410 × 1870 across the hatch</div>
+                <div>joist at 400 centres</div>
+                <div class="hdr">this phone · 09:31</div>
+                <div class="mine">headroom 1980 at the ridge</div>
+                <div class="hdr">nas · 09:34</div>
+                <div class="theirs">headroom 1955 at the ridge — remeasured</div>
+                <div class="hdr">merged automatically</div>
+                <div>order the ply Friday</div>
+              </div>
+              <div class="sub" style="margin-top:12px;color:var(--shade)">Fork saved as<br>loft-measurements_pixel9_Aug-23-0934-2026_EditConflict_1.md</div>
+            </div>
+            <div class="cfbtns">
+              <div class="p">Keep theirs</div>
+              <div class="s">Keep mine</div>
+              <div class="s">Edit the merge</div>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Resolve</b>Synology's own conflict naming, so it reads native in Drive</figcaption>
+      </figure>
+
+      <!-- SETUP -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar" style="border:0;margin-bottom:2px;padding-left:0"><i></i><span style="color:var(--text);font-size:13px;font-family:var(--display)">Set up your vault</span></div>
+            <div class="setrow"><i class="ok">✓</i><div class="t"><b>Host</b><span>nas.tailnet.ts.net : 5006 · certificate valid</span></div></div>
+            <div class="setrow"><i class="ok">✓</i><div class="t"><b>Account</b><span>xxnote · WebDAV permission only · sealed to StrongBox</span></div></div>
+            <div class="setrow"><i class="ok">✓</i><div class="t"><b>Connection</b><span>207 Multi-Status · strong ETags · If-Match honored</span></div></div>
+            <div class="setrow"><i class="ok">✓</i><div class="t"><b>Vault folder</b><span>/home/Drive/Notes/</span></div></div>
+            <div class="setrow"><i class="warn">!</i><div class="t"><b>47 existing .md files found</b><span>They will be imported and each given an <code>id:</code> line — the only time XX-Note edits a file it did not create. Nothing is overwritten, nothing is moved.</span></div></div>
+            <div class="setrow"><i class="ok">✓</i><div class="t"><b>Device name</b><span>pixel9 · used in conflict filenames</span></div></div>
+            <div class="setrow"><i class="off">○</i><div class="t"><b>First sync</b><span>not started</span></div></div>
+            <div class="cfbtns" style="margin-top:auto"><div class="p">Import 47 notes</div><div class="s">Choose a different folder</div></div>
+          </div>
+        </div>
+        <figcaption><b>Setup</b>each step shows its real state — a half-configured sync must never look configured</figcaption>
+      </figure>
+
+      <!-- TRASH -->
+      <figure class="dev">
+        <div class="screen">
+          <div class="sbar"><span>09:41</span><span>▚ ▚ 87%</span></div>
+          <div class="body">
+            <div class="topbar" style="border:0;margin-bottom:2px;padding-left:0"><i>←</i><span style="color:var(--text);font-size:13px;font-family:var(--display)">Trash</span><i>⋯</i></div>
+            <div style="padding:2px 15px 12px;font-size:9.5px;color:var(--muted);line-height:1.7">
+              Notes stay here for 7 days, on the NAS as well as the phone.
+              Expiry is the only thing in this app that issues a delete.
+            </div>
+            <div class="trow"><b>old idea about the shed</b><span>6 days</span></div>
+            <div class="trow"><b>scratch</b><span>5 days</span></div>
+            <div class="trow"><b>Untitled</b><span>2 days</span></div>
+            <div class="trow"><b>duplicate of Standup</b><span>18 hours</span></div>
+            <div style="margin:16px 15px;border:1px solid var(--line);border-radius:10px;padding:11px 12px">
+              <em style="font-style:normal;font-size:8.5px;letter-spacing:.14em;text-transform:uppercase;color:var(--muted);display:block">Vault safety</em>
+              <b style="display:block;font-family:var(--display);font-weight:400;font-size:12px;color:var(--text);margin-top:4px">A sync that would trash more than 25% stops and asks</b>
+              <span style="display:block;font-size:9px;color:var(--muted);margin-top:4px">That shape is a wrong path, a wrong account, or an empty share mounted over the right one — and it is exactly how file-sync tools destroy data.</span>
+            </div>
+          </div>
+        </div>
+        <figcaption><b>Trash</b>delete is a MOVE — the unlink happens once, on expiry</figcaption>
+      </figure>
+
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="wrap">
+    <div class="sec-head">
+      <p class="eyebrow">04 · The claim</p>
+      <h2>This is the one app in the family that needs the network</h2>
+      <p>The rest of the family ships with no <code>INTERNET</code> permission and
+      invites you to check the manifest. XX-Note cannot, and says so.</p>
+    </div>
+    <div class="notes" style="margin-top:0">
+      <div class="note"><h3>One host</h3><p>An interceptor <b>throws</b> on any host but the configured one. Not logs, not warns, not falls back. Its tests include the same host on another port, a redirect to a third party, and an IP literal.</p></div>
+      <div class="note"><h3>No cleartext, no bypass</h3><p>A network security config naming exactly one domain, cleartext forbidden. There is <b>no “trust anyway” affordance</b> anywhere in the app for a bad certificate.</p></div>
+      <div class="note"><h3>Zero storage permissions</h3><p>The mirror lives in <code>filesDir/vault</code> — app-private, no grant, no Storage Scopes interaction. <b>Four permissions total</b>, and the short list is the claim.</p></div>
+      <div class="note"><h3>Revocable, and it degrades</h3><p>Turn the Network permission off on GrapheneOS and you have a <b>fully working local notes app</b> that tells you nothing is leaving the device. Not an error. A state.</p></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <span>PiercingXX · XX-Note · specification only, nothing built</span>
+    <span>design.md · todo.md · design/research.md</span>
+  </div>
+</footer>
