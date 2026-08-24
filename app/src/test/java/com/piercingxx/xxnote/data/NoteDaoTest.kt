@@ -102,6 +102,8 @@ class NoteDaoTest {
         }
     }
 
+    // assertNotNull above guarantees non-null; the cast target is erased at runtime, so the warning is a false positive.
+    @Suppress("UNCHECKED_CAST")
     private fun <T> assertNotNull(value: T?): T {
         org.junit.Assert.assertNotNull(value)
         return value as T

@@ -3,8 +3,10 @@
 Spec: [design.md](design.md). Target: Pixel 9 Pro (`caiman`), GrapheneOS,
 Android 17 / SDK 37.
 
-**Status: nothing built.** The repo holds `design.md`, this file, and
-`design/` (the screen mockup + research notes).
+**Status: WS0–WS10 implemented.** 579 unit tests green across `app` and
+`core`; the release build compiles unsigned pending signing keys. The gap
+between "tests are green" and "trustworthy" lives in
+[todo-hardening.md](todo-hardening.md).
 
 ---
 
@@ -67,14 +69,12 @@ silently undone and concurrent tapping starts forking notes.
 
 ### Decisions still open
 
-Two remain. **O2 and O3 are settled** (see below); neither of the survivors
-blocks WS0–2:
+One remains; neither it nor any decision below blocks WS0–2:
 
 - **O1** — vault inside Synology Drive's My Drive (free server-side version
   history) or a plain shared folder (simpler path, no Drive coupling).
   **WS0 answers this**, since it depends on what the service account sees.
-- **O4** — trash expiry at Keep's 7 days or longer. Blocks nothing; it is a
-  default.
+  Note WS0 has not been run against the real NAS yet (todo-hardening #1).
 
 **Settled by operator ruling, recorded here so they are not re-opened:**
 
@@ -86,6 +86,16 @@ blocks WS0–2:
   item-wise checklist merge (design D18, D19, §7.1) — which makes concurrent
   tapping *safer* than the display-only alternative, because a three-way
   boolean has no conflicting case. **WS2 owns it, not WS8.**
+
+**Recorded from the spec's standing default, not an operator ruling:**
+
+- **O4 — trash expiry is Keep's 7 days.** design §18 lists "7 days,
+  configurable" as the default-until-overruled and D9 adopts Keep's rule
+  verbatim — "trash expires at 7 days … expiry is the only path to a real
+  unlink." No ruling ever overruled it, so the default stands. The code ships
+  the 7-day half as a constant (`TrashMath.EXPIRY_DAYS`, `EXPIRY_MS`) with a
+  days-remaining chip on the trash screen; the "configurable" half of §18's
+  wording did not ship — nothing exposes an expiry setting.
 
 ---
 

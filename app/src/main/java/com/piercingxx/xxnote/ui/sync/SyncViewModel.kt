@@ -90,7 +90,7 @@ class SyncViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context get() = getApplication<Application>()
 
-    private val db by lazy { XxDatabase.builder(context).build() }
+    private val db by lazy { XxDatabase.getInstance(context) }
     private val store by lazy { VaultStore(context) }
 
     /**

@@ -1,0 +1,41 @@
+# Hardening #13. Every push runs the unit suites, the release assembly, lint,
+# and the two audits that todo.md's standing rules previously demanded by hand:
+# the merged-manifest permission set (scripts/check-permissions.sh) and the
+# release dependency allowlist (scripts/check-deps.sh). Both audits fail the
+# build on any mismatch, so the short permission list and the one-host
+# dependency claim can rot only by editing their pinned lists in the open.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  build-test-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Validate gradle wrapper
+        uses: gradle/actions/wrapper-validation@v4
+
+      - name: Set up JDK 17 (temurin) with gradle caching
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # GitHub runners ship the Android SDK; no local.properties is written.
+      - name: Build, test, lint
+        run: >
+          ./gradlew testDebugUnitTest :core:test :app:testReleaseUnitTest
+          :app:assembleRelease :app:lintDebug --console=plain
+
+      - name: Audit merged-manifest permissions
+        run: ./scripts/check-permissions.sh
+
+      - name: Audit release dependency allowlist
+        run: ./scripts/check-deps.sh

@@ -33,6 +33,9 @@ import java.io.File
  * - M6: the archive toggle rides the same single-save pipeline.
  * - L8: a WorkManager enqueue refusal after a successful save stays silent
  *   (no crash, no false "not saved").
+ * - Hardening #2: the ON_STOP/onCleared flush persists a dirty buffer
+ *   immediately, cancels the debounce so nothing double-writes, and is a
+ *   no-op on a clean editor.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -66,6 +69,18 @@ class EditorViewModelTest {
     private fun noteText(id: String, title: String, body: String): String =
         "---\nid: $id\ntitle: $title\ncreated: 2026-08-20T09:00:00Z\n" +
             "updated: 2026-08-21T10:00:00Z\npinned: false\narchived: false\n---\n$body"
+
+    /**
+     * Hardening #2: invokes the protected ViewModel teardown hook directly.
+     * [Method.invoke] dispatches virtually, so the EditorViewModel override
+     * runs — proving the wiring itself, not a copy of it.
+     */
+    private fun EditorViewModel.clearNow() {
+        androidx.lifecycle.ViewModel::class.java
+            .getDeclaredMethod("onCleared")
+            .apply { isAccessible = true }
+            .invoke(this)
+    }
 
     @Test
     fun writeAfterExternalTrashSurfacesWordsAndDropsThePendingIntentWithoutTouchingTrash() {
@@ -215,5 +230,85 @@ class EditorViewModelTest {
             "a failed insert must not touch the body",
             store.read(id)!!.wholeFileText.contains("![](attachments/"),
         )
+    }
+
+    // ---- Hardening #2: ON_STOP / onCleared flush ------------------------------
+
+    /**
+     * (a) A dirty buffer persists the moment [EditorViewModel.flushPendingSave]
+     * runs — well inside the 800 ms window it would otherwise wait out.
+     */
+    @Test
+    fun flushPersistsADirtyBufferBeforeTheDebounceElapses() {
+        val id = Ulid.generate()
+        store.write(id, noteText(id, "Draft", "typed just now\n"))
+        vm.load(id)
+        await { it.ready }
+
+        vm.onBodyChange("typed just now, plus this line\n")
+        vm.flushPendingSave()
+
+        await { _ -> store.read(id)?.wholeFileText?.contains("plus this line") == true }
+        assertNull("a flushed save must not speak", vm.state.value.saveError)
+    }
+
+    /**
+     * (b) The flush CANCELS the debounce timer: after waiting past the
+     * original window, no second persist lands. Observable because each
+     * persistNow stamps a fresh millisecond `updated:` — a double write
+     * would change the bytes.
+     */
+    @Test
+    fun flushCancelsTheDebounceTimerSoNoSecondWriteLands() {
+        val id = Ulid.generate()
+        store.write(id, noteText(id, "Once", "one write only\n"))
+        vm.load(id)
+        await { it.ready }
+
+        vm.onBodyChange("one write only, flushed\n")
+        vm.flushPendingSave()
+        await { _ -> store.read(id)?.wholeFileText?.contains("flushed") == true }
+        val flushedBytes = store.read(id)!!.wholeFileText
+
+        Thread.sleep(EditorViewModel.SAVE_DEBOUNCE_MS + 400)
+        assertEquals(
+            "the cancelled debounce must not fire a second write",
+            flushedBytes,
+            store.read(id)!!.wholeFileText,
+        )
+    }
+
+    /**
+     * (c) ViewModel teardown flushes too — the second line of defence when
+     * back-navigation pops before composition could react to anything.
+     */
+    @Test
+    fun onClearedFlushesTheDirtyBufferAsLastWritePath() {
+        val id = Ulid.generate()
+        store.write(id, noteText(id, "Teardown", "cleared mid-window\n"))
+        vm.load(id)
+        await { it.ready }
+
+        vm.onBodyChange("cleared mid-window, then saved\n")
+        vm.clearNow()
+
+        await { _ -> store.read(id)?.wholeFileText?.contains("then saved") == true }
+        assertNull(vm.state.value.saveError)
+    }
+
+    /** Backgrounding a clean editor is a no-op: no rewrite, no stamp churn. */
+    @Test
+    fun flushWithoutEditsLeavesTheFileUntouched() {
+        val id = Ulid.generate()
+        val original = noteText(id, "Idle", "nothing dirty here\n")
+        store.write(id, original)
+        vm.load(id)
+        await { it.ready }
+
+        vm.flushPendingSave()
+
+        Thread.sleep(EditorViewModel.SAVE_DEBOUNCE_MS + 200)
+        assertEquals(original, store.read(id)!!.wholeFileText)
+        assertNull(vm.state.value.saveError)
     }
 }

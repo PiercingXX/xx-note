@@ -44,6 +44,7 @@ import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -70,6 +71,9 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.piercingxx.xxnote.ui.grid.NoteTone
 import com.piercingxx.xxnote.ui.grid.canonicalColorFor
@@ -121,6 +125,22 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
 
     LaunchedEffect(noteId) { vm.load(noteId) }
     LaunchedEffect(state.missing) { if (state.missing) onClose() }
+
+    // Hardening #2: the editor is the one screen where losing state actually
+    // costs writing, so unlike the list screens (whose observers only
+    // refresh), its lifecycle observer FLUSHES: ON_STOP — backgrounding,
+    // Recents swipe-away, incoming call, the preamble to an OOM kill —
+    // cancels the pending 800 ms debounce and persists immediately. A no-op
+    // when nothing is dirty. onCleared stays as the ViewModel-level second
+    // line of defence.
+    val lifecycleOwner = LocalLifecycleOwner.current
+    DisposableEffect(lifecycleOwner) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) vm.flushPendingSave()
+        }
+        lifecycleOwner.lifecycle.addObserver(observer)
+        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+    }
 
     var showColorSheet by remember { mutableStateOf(false) }
     var showLabelSheet by remember { mutableStateOf(false) }

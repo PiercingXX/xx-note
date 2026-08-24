@@ -16,9 +16,11 @@ import kotlinx.coroutines.runBlocking
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import java.nio.channels.FileChannel
 import java.nio.file.AtomicMoveNotSupportedException
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.nio.file.StandardOpenOption
 import java.time.Instant
 
 /**
@@ -53,10 +55,10 @@ class VaultStore internal constructor(
     private val db: XxDatabase,
 ) : LocalFiles, SyncBookkeeping {
 
-    /** Production wiring: db in the standard app database, mirror at filesDir/vault. */
+    /** Production wiring: the process-wide db (hardening #9), mirror at filesDir/vault. */
     constructor(context: Context) : this(
         mirrorRoot = File(context.filesDir, MIRROR_DIR),
-        db = XxDatabase.builder(context).build(),
+        db = XxDatabase.getInstance(context),
     )
 
     // ---- LocalFiles ---------------------------------------------------------
@@ -352,6 +354,23 @@ class VaultStore internal constructor(
         } catch (e: IOException) {
             tmp.delete()
             throw e
+        }
+        fsyncDir(target.parentFile ?: return)
+    }
+
+    /**
+     * Hardening #12: the rename is only durable once its parent directory
+     * entry is, so fsync the directory too. Best-effort BY DESIGN — some
+     * platforms or filesystems refuse to open/sync a directory fd, and a
+     * durability nicety must never fail an already-committed write (the temp
+     * file's own fd.sync() above still bounds the loss). Swallowed silently:
+     * this codebase logs nothing.
+     */
+    private fun fsyncDir(dir: File) {
+        try {
+            FileChannel.open(dir.toPath(), StandardOpenOption.READ).use { it.force(true) }
+        } catch (_: Exception) {
+            // Directory fsync unavailable on this platform; degrade to no-op.
         }
     }
 

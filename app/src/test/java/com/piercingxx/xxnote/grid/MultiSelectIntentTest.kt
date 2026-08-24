@@ -62,6 +62,8 @@ class MultiSelectIntentTest {
     }
 
     /** JUnit's assertNotNull is void; this flavour hands the value back. */
+    // assertNotNull above guarantees non-null; the cast target is erased at runtime, so the warning is a false positive.
+    @Suppress("UNCHECKED_CAST")
     private fun <T> notNull(value: T?): T {
         org.junit.Assert.assertNotNull(value)
         return value as T

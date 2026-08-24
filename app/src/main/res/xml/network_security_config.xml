@@ -4,9 +4,13 @@
   anchors to the system store only, so the Tailscale-issued Let's Encrypt
   certificate on the NAS validates with no pinning and no user CA.
 
-  ⚠ REPLACE AT SETUP (WS6): "nas.your-tailnet.ts.net" below is a placeholder.
-  Swap it for the operator's real MagicDNS host. Never widen this file:
-  no extra domains, no user CAs, no cleartext exceptions.
+  Deliberately NO <domain-config> (hardening #11): the NAS host is chosen at
+  runtime, so a domain entry here could never match anything. The security
+  claim rides entirely on <base-config> above plus OneHostInterceptor, which
+  WebDavClient installs as an application interceptor pinning every request
+  to the configured scheme://host:port with redirects disabled — a request
+  for any other origin throws before a socket is opened. Never widen this
+  file: no extra domains, no user CAs, no cleartext exceptions.
 -->
 <network-security-config>
 
@@ -15,12 +19,5 @@
             <certificates src="system"/>
         </trust-anchors>
     </base-config>
-
-    <domain-config cleartextTrafficPermitted="false">
-        <domain includeSubdomains="false">nas.your-tailnet.ts.net</domain>
-        <trust-anchors>
-            <certificates src="system"/>
-        </trust-anchors>
-    </domain-config>
 
 </network-security-config>

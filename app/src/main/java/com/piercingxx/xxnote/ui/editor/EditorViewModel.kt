@@ -19,6 +19,7 @@ import java.io.File
 import java.io.IOException
 import java.time.Instant
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.cancelAndJoin
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -98,7 +99,7 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private val attachments by lazy {
         AttachmentStore(
             vaultRoot = File(context.filesDir, VaultStore.MIRROR_DIR),
-            dao = XxDatabase.builder(context).build().attachmentDao(),
+            dao = XxDatabase.getInstance(context).attachmentDao(),
         )
     }
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -134,6 +135,13 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
     private var pendingLabelIntents: List<LabelIntent> = emptyList()
 
     private var saveJob: Job? = null
+
+    /**
+     * Hardening #2: true from the first unsaved mutation until its debounced
+     * [persistNow] begins. The ON_STOP / onCleared flush persists only real
+     * dirt, so merely backgrounding a clean editor never rewrites the file.
+     */
+    @Volatile private var hasPendingSave = false
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()
@@ -390,11 +398,53 @@ class EditorViewModel(application: Application) : AndroidViewModel(application) 
      * the next one starts — all mutations are serialized through this job.
      */
     private fun scheduleSave() {
+        hasPendingSave = true
         saveJob?.cancel()
         saveJob = ioScope.launch {
             delay(SAVE_DEBOUNCE_MS)
+            hasPendingSave = false
             persistNow()
         }
+    }
+
+    /**
+     * Hardening #2: the ON_STOP / onCleared last-write path. Cancels the
+     * still-waiting debounce timer and persists the dirty buffer NOW through
+     * the one [persistNow] pipeline — so process death inside the 800 ms
+     * window can no longer discard typed text.
+     *
+     * Thread discipline: the call lands on the MAIN thread (lifecycle
+     * callback), but all work hands off to the private IO scope, which
+     * outlives this ViewModel by design — a job enqueued here survives
+     * [onCleared] teardown. The cancel-and-JOIN keeps H1's serialization law
+     * intact even when a debounced persist is already mid-write (past its
+     * delay, cancellation is cooperative): the flush waits it out, then
+     * rewrites once from the newest fields. A no-op unless something is
+     * actually unsaved ([hasPendingSave]).
+     */
+    fun flushPendingSave() {
+        if (!isLoaded()) return
+        if (!hasPendingSave) return
+        hasPendingSave = false
+        val waiting = saveJob
+        saveJob = null
+        ioScope.launch {
+            waiting?.cancelAndJoin()
+            persistNow()
+        }
+    }
+
+    /**
+     * Hardening #2: second line of defence behind the screen's ON_STOP
+     * observer — a back-navigation pop can tear the ViewModel down without
+     * composition having flushed, so the flush must not rely on the UI at
+     * all. [flushPendingSave] enqueues onto the outliving IO scope before
+     * this returns; the write itself proceeds after teardown. Main-thread
+     * safe by construction (no blocking hand-off needed).
+     */
+    override fun onCleared() {
+        super.onCleared()
+        flushPendingSave()
     }
 
     /** One save = one D18 rewrite, one vault write, one sync enqueue. */

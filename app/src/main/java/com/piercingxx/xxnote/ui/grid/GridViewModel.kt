@@ -35,9 +35,8 @@ import kotlinx.coroutines.withContext
  *   [SearchQuery.sanitize], results are re-projected into cards from the
  *   row's whole-file text, and an empty query restores the normal grid.
  *   Ruling: [VaultStore] exposes no FTS port this wave and its file is owned
- *   by another workstream, so the view model opens its own Room handle via
- *   [XxDatabase.builder] (same db file; Room supports concurrent handles)
- *   instead of editing data/.
+ *   by another workstream, so the view model reaches the shared process-wide
+ *   handle via [XxDatabase.getInstance] (hardening #9) instead of editing data/.
  * - multi-select — [SelectionState]; batch actions fold pure
  *   [MultiSelectOps] intents over each selected note's whole-file text,
  *   sequentially on IO, then write once per note through VaultStore.write.
@@ -72,9 +71,9 @@ class GridViewModel(application: Application) : AndroidViewModel(application) {
 
     /**
      * Read handle for FTS (see class KDoc ruling). Lazy so a session that
-     * never searches never opens a second connection.
+     * never searches never touches the database.
      */
-    private val searchDb by lazy { XxDatabase.builder(context).build() }
+    private val searchDb by lazy { XxDatabase.getInstance(context) }
 
     private val _state = MutableStateFlow(UiState())
     val state: StateFlow<UiState> = _state.asStateFlow()

@@ -8,6 +8,9 @@ import com.piercingxx.xxnote.core.SyncPolicy
 import com.piercingxx.xxnote.core.Ulid
 import com.piercingxx.xxnote.core.Verdict
 import com.piercingxx.xxnote.net.HttpError
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import java.time.Instant
 
 /**
@@ -193,7 +196,20 @@ class SyncEngine(
 
     // ---- the pass -------------------------------------------------------------
 
-    fun syncOnce(trashSafetyThreshold: Double = DEFAULT_TRASH_SAFETY_THRESHOLD): SyncOutcome {
+    /**
+     * Serializes whole-vault passes. WorkManager does not serialize across
+     * unique names: the periodic (`xx-note-sync-periodic`) and expedited
+     * (`xx-note-sync-once`) chains can dispatch two [syncOnce] passes into
+     * this process at once, and interleaved whole-vault reconciliations would
+     * race the same mirror, database, and NAS. Overlapping invocations queue
+     * here instead — one pass runs to completion before the next begins.
+     */
+    private val passMutex = Mutex()
+
+    fun syncOnce(trashSafetyThreshold: Double = DEFAULT_TRASH_SAFETY_THRESHOLD): SyncOutcome =
+        runBlocking { passMutex.withLock { runPass(trashSafetyThreshold) } }
+
+    private fun runPass(trashSafetyThreshold: Double): SyncOutcome {
         val run = Run()
         val claimsById = try {
             fetchRemoteClaims(run)

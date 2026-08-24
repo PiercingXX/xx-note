@@ -13,11 +13,14 @@
          FOREGROUND_SERVICE is genuinely unused here: expedited syncs fall back
          to regular work (RUN_AS_NON_EXPEDITED_WORK_REQUEST), never a foreground
          service (§4.4) — stripped to keep the audit line honest.
-         WAKE_LOCK and RECEIVE_BOOT_COMPLETED remain: they ARE WorkManager's
-         boot-persistence mechanism (design §13 wanted exactly this via a
-         custom receiver; WM provides it natively). OPERATOR VETO POINT: if the
-         four-permission claim must be absolute, remove these two too and
-         accept that periodic sync waits until first app open after a reboot. -->
+         WAKE_LOCK and RECEIVE_BOOT_COMPLETED remain because periodic sync is
+         real: MainActivity enqueues the 15-minute pass at app start whenever a
+         credential row exists, and Setup enqueues on completion (design §4.4).
+         RECEIVE_BOOT_COMPLETED is WorkManager's boot-persistence mechanism —
+         without it the periodic pass would not survive a reboot until the next
+         app open. OPERATOR VETO POINT: if the four-permission claim must be
+         absolute, remove these two too and accept that periodic sync waits
+         until first app open after a reboot. -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE"
         tools:node="remove"/>
@@ -35,7 +38,16 @@
         android:icon="@mipmap/ic_launcher"
         android:theme="@style/Theme.XxNote"
         android:usesCleartextTraffic="false"
-        android:networkSecurityConfig="@xml/network_security_config">
+        android:networkSecurityConfig="@xml/network_security_config"
+        android:allowBackup="false"
+        android:dataExtractionRules="@xml/data_extraction_rules">
+
+        <!-- Backup/extraction posture (R8, hardening #4): allowBackup is false
+             outright, and data_extraction_rules additionally excludes every
+             domain from both cloud-backup and device-to-device transfer on
+             12+. The vault (filesDir) and the Room DB holding the sealed
+             credential blob never leave the device — the Keystore key cannot
+             be backed up, so a restored blob would be unopenable anyway. -->
 
         <!-- Single launcher activity; Compose only (D11). No exported
              components beyond this one (design §13). -->
@@ -49,9 +61,10 @@
             </intent-filter>
         </activity>
 
-        <!-- Arriving in later workstreams:
-             SyncWorker + AttachmentWorker under WorkManager (WS5),
-             FileProvider for share-out (WS7).
+        <!-- Shipped: SyncWorker under WorkManager since WS5 — it needs no
+             manifest entry of its own; WorkManager's provider/services/
+             receivers merge in below. Share-out via FileProvider (WS7's
+             original scope) did not ship, so nothing declares one.
              Deliberately NO BootReceiver — WorkManager persists periodic work
              across reboots; keeps the four-permission claim intact. -->
 

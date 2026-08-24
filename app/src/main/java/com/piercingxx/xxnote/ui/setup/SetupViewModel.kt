@@ -12,6 +12,8 @@ import com.piercingxx.xxnote.net.CredentialVault
 import com.piercingxx.xxnote.net.HttpError
 import com.piercingxx.xxnote.net.KeystoreKeyOps
 import com.piercingxx.xxnote.sync.SyncEngine
+import com.piercingxx.xxnote.sync.SyncGraph
+import com.piercingxx.xxnote.sync.SyncScheduler
 import java.io.IOException
 import javax.net.ssl.SSLException
 import kotlinx.coroutines.CancellationException
@@ -371,7 +373,7 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
     private suspend fun persist(payload: SetupLogic.ConfigPayload, password: String) {
         val sealed = CredentialVault(KeystoreKeyOps(SetupLogic.VAULT_KEY_ALIAS, strongBox = true))
             .seal(password.toByteArray(Charsets.UTF_8))
-        val db = XxDatabase.builder(appContext).build()
+        val db = XxDatabase.getInstance(appContext)
         db.credentialDao().upsert(
             CredentialEntity(
                 host = payload.credentialHost,
@@ -384,6 +386,14 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
         for ((key, value) in payload.settings) {
             db.settingDao().put(SettingEntity(key = key, value = value))
         }
+        // Hardening #6: any cached engine still signs with the OLD credential —
+        // correcting a wrong host or password must take effect immediately,
+        // not after the next process death.
+        SyncGraph.invalidate()
+        // Hardening #3a: a credential row exists → background sync exists from
+        // now on (§4.4). KEEP makes repeat calls no-ops, so this composes with
+        // MainActivity's own ensurePeriodic on every later start.
+        SyncScheduler.ensurePeriodic(appContext)
     }
 
     /** Verbatim-first words for any refused call (R10): status line, then plain words. */

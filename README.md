@@ -8,7 +8,9 @@ reached over Tailscale. Every note is one plain file with YAML frontmatter.
 Open the vault in Obsidian, in `vim`, in Notepad, in ten years. Delete this
 app and lose nothing.
 
-**Status:** specification only. Nothing built.
+**Status:** WS0–WS10 implemented. 579 unit tests green (`testDebugUnitTest` +
+`:core:test`). The release build compiles unsigned pending signing keys.
+Hardening is in progress per [todo-hardening.md](todo-hardening.md).
 **Spec:** [design.md](design.md) — the full design.
 **Build plan:** [todo.md](todo.md) — workstreams, gates, and the order to do them in.
 **Screens:** [design/xx-note-screens.html](design/xx-note-screens.html) — the mockup.
