@@ -1,30 +1,32 @@
 # XX-Note — Hardening Plan (post WS0–WS10)
 
 > **Status (2026-08-23 hardening pass):** items **2–13, 16, 17 implemented** and
-> verified — 585 unit tests / 0 failures / 1 skipped (deliberate), release build
+> verified — 623 unit tests / 0 failures / 1 skipped (deliberate), release build
 > green, `lintDebug` green, permission + dependency audits green, review-pass S1/S2
 > findings fixed (sync-pass mutex + live-pass counter, engine generation guard,
 > narrowed permanent-unseal set, singleton test de-vacuumed, sdk-23 audit).
 > **Still open, hardware-gated:** #1 probe run + design §4 transcription + O1 +
-> conditional §4.2 fallback (needs the real DSM); #5 install/launch on `caiman`;
-> #14 *execution* of the new androidTest suites (`KeystoreKeyOpsTest`,
-> `MinifiedSmokeTest` — authored and compile-verified only); #15 R3 run.
+> conditional §4.2 fallback (needs the real DSM); #5 signed release install —
+> a debug build installs and launches on the Pixel 6 (`oriole`), the minified
+> one has no keys to sign with; #14 *execution* of the new androidTest suites
+> (`KeystoreKeyOpsTest`, `MinifiedSmokeTest` — authored and compile-verified
+> only); #15 R3 run.
 > Deferred by review: dedicated ConnectionState wording for unseal failure
 > (reuses accurate 401 re-entry wording); post-ON_STOP `insertImage` flush window
 > (pre-existing); CI action pinning by SHA.
 
-Companion to [todo.md](todo.md) (the build plan, now stale — it and the README
-still say "nothing built"). This file is the gap list between "the code exists
-and its tests are green" and "this is reliable enough to trust with the only
-copy of your writing."
+Companion to [todo.md](todo.md) (the build plan; both it and the README now
+carry an accurate status line — see #16). This file is the gap list between
+"the code exists and its tests are green" and "this is reliable enough to trust
+with the only copy of your writing."
 
 **Verified state as of this review:**
 
-- `./gradlew testDebugUnitTest :core:test` — **567 tests, 0 failures, 1 skipped**
-  (`HeicTranscodeRoboTest`). Core: 131. App: 436.
+- `./gradlew testDebugUnitTest :core:test` — **623 tests, 0 failures, 1 skipped**
+  (`HeicTranscodeRoboTest`). Core: 131. App: 492.
 - `./gradlew :app:assembleRelease` — **succeeds**, R8 minification included.
 - No `TODO`/`FIXME`/stub markers anywhere in `main` source.
-- 13.7k lines main / 10.0k lines test.
+- 14.4k lines main / 11.2k lines test, plus 0.3k androidTest.
 
 The code is in far better shape than the docs suggest. Everything below is a
 gap in *verification and lifecycle*, not in logic.
@@ -150,7 +152,9 @@ real, on the real vault" — which requires an installable release build.
 **Do:**
 - [ ] Add a release `signingConfig` reading from `local.properties` or env
       (keystore path/passwords must never enter git).
-- [ ] Build, install on `caiman`, confirm it launches minified.
+- [ ] Build, install on the Pixel 6 (`oriole` — the target is still `caiman`,
+      the hardware on the desk is not), confirm it launches minified. A debug
+      build already installs and launches there; the release one has no keys.
 
 ---
 
@@ -240,13 +244,16 @@ not be durable. Minor on modern ext4/f2fs; cheap to close.
 
 ### 13. There is no CI. At all.
 
-No `.github/`. todo.md's standing rules mandate, at **every** workstream exit:
-`aapt2 dump permissions` showing exactly four permissions, and a dependency-tree
-audit for anything that talks to a network on its own. Neither is automated;
-both are the kind of check that rots silently. The merged manifest already
-shows seven permission entries — `WAKE_LOCK`, `RECEIVE_BOOT_COMPLETED`, and
-`DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` merged in from WorkManager. The
-manifest comments acknowledge the first two; nothing acknowledges the third.
+There was no `.github/`. todo.md's standing rules mandate, at **every**
+workstream exit: `aapt2 dump permissions` showing exactly four permissions, and
+a dependency-tree audit for anything that talks to a network on its own.
+Neither was automated; both are the kind of check that rots silently. The
+merged manifest shows seven permission entries — `WAKE_LOCK`,
+`RECEIVE_BOOT_COMPLETED`, and `DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION` merged
+in from WorkManager and androidx.core. All three are acknowledged now: the
+pinned expected list in `scripts/check-permissions.sh` names and justifies each
+one, and `.github/workflows/ci.yml` runs it. Actions are still referenced by
+tag, not SHA — deferred by review.
 
 - [ ] CI: build, `testDebugUnitTest`, `:core:test`, `assembleRelease`, lint.
 - [ ] CI: assert the merged-manifest permission set against an explicit
@@ -255,13 +262,16 @@ manifest comments acknowledge the first two; nothing acknowledges the third.
 
 ### 14. Zero instrumented tests.
 
-No `androidTest` source set exists. WS4/WS5 gates say instrumented tests "run
-against the operator's real DSM over Tailscale," and §16 says the StrongBox
-path is proven on hardware. `KeystoreKeyOps` — the class holding the credential
-key, including the StrongBox-unavailable fallback — has **never executed.**
+There is an `androidTest` source set now, and nothing in it has ever run.
+WS4/WS5 gates say instrumented tests "run against the operator's real DSM over
+Tailscale," and §16 says the StrongBox path is proven on hardware.
+`KeystoreKeyOps` — the class holding the credential key, including the
+StrongBox-unavailable fallback — has **still never executed.** Authored is not
+run.
 
-- [ ] `androidTest` for `KeystoreKeyOps` on `caiman`: seal/unseal round-trip,
-      StrongBox path, TEE fallback, tampered-blob rejection.
+- [ ] `androidTest` for `KeystoreKeyOps` on the Pixel 6 (`oriole`): seal/unseal
+      round-trip, StrongBox path, TEE fallback, tampered-blob rejection.
+      `KeystoreKeyOpsTest` is written and compiles; run it.
 - [ ] Instrumented WebDAV suite against the real DSM.
 
 ### 15. The R3 test has no recorded run.
@@ -274,10 +284,12 @@ against the real NAS.
 
 ### 16. The docs are ten workstreams stale.
 
-`README.md` says **"Status: specification only. Nothing built."**
-`todo.md` says **"Status: nothing built."** Both are wrong; WS0–WS10 are
-committed. The manifest also promises components "arriving in later
-workstreams" that have since arrived.
+`README.md` said **"Status: specification only. Nothing built."**
+`todo.md` said **"Status: nothing built."** Both were wrong; WS0–WS10 are
+committed. The manifest also promised components "arriving in later
+workstreams" that have since arrived. Both status lines now report what is
+built and what is only tested on a JVM; **O4** is recorded (design §18: 7 days,
+configurable — the code ships the 7-day constant, nothing exposes the setting).
 
 - [ ] Update both status lines and the manifest's forward-looking comments.
 - [ ] Record **O4** (trash expiry: 7 days or longer) — still listed as open.

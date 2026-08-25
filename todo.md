@@ -3,8 +3,9 @@
 Spec: [design.md](design.md). Target: Pixel 9 Pro (`caiman`), GrapheneOS,
 Android 17 / SDK 37.
 
-**Status: WS0–WS10 implemented.** 579 unit tests green across `app` and
-`core`; the release build compiles unsigned pending signing keys. The gap
+**Status: WS0–WS10 implemented.** 623 unit tests green across `app` (492) and
+`core` (131), with one deliberate skip; the release build compiles unsigned
+pending signing keys. The gap
 between "tests are green" and "trustworthy" lives in
 [todo-hardening.md](todo-hardening.md).
 
