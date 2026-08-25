@@ -1,8 +1,10 @@
 package com.piercingxx.xxnote
 
+import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
@@ -11,6 +13,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.core.view.WindowCompat
 import androidx.lifecycle.lifecycleScope
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
@@ -28,6 +31,7 @@ import com.piercingxx.xxnote.ui.labels.LabelsScreen
 import com.piercingxx.xxnote.ui.setup.SetupScreen
 import com.piercingxx.xxnote.ui.sync.SyncScreen
 import com.piercingxx.xxnote.ui.trash.TrashScreen
+import com.piercingxx.xxnote.ui.theme.ThemeSync
 import com.piercingxx.xxnote.ui.theme.Tokens
 import com.piercingxx.xxnote.ui.theme.XxNoteTheme
 import kotlinx.coroutines.launch
@@ -35,6 +39,10 @@ import kotlinx.coroutines.launch
 class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Family theme sync: load the launcher-synced ground (if any) into
+        // Tokens before the first frame, so the whole UI — the neutral
+        // pre-route frame included — composes on the persisted ground.
+        ThemeSync.load(applicationContext)
         // Start-route resolution no longer blocks onCreate (#8): a lifecycleScope
         // coroutine performs the credential lookup (Room suspend DAOs are
         // main-safe, so nothing pins Dispatchers here), and until it lands the
@@ -49,6 +57,23 @@ class MainActivity : ComponentActivity() {
             startOnSetup = !configured
         }
         setContent {
+            // Window chrome follows the active ground: reading activeGround
+            // here re-runs the effect whenever a theme broadcast lands, so
+            // the decor background and system-bar contrast flip with the UI.
+            // XML Theme.XxNote pins the AMOLED default for cold start.
+            val ground = Tokens.activeGround
+            SideEffect {
+                val bg = ground.background.toInt()
+                window.setBackgroundDrawable(ColorDrawable(bg))
+                @Suppress("DEPRECATION")
+                window.statusBarColor = bg
+                @Suppress("DEPRECATION")
+                window.navigationBarColor = bg
+                WindowCompat.getInsetsController(window, window.decorView).apply {
+                    isAppearanceLightStatusBars = !ground.isDark
+                    isAppearanceLightNavigationBars = !ground.isDark
+                }
+            }
             XxNoteTheme {
                 val resolved = startOnSetup
                 if (resolved == null) {

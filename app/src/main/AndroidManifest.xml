@@ -62,6 +62,19 @@
             </intent-filter>
         </activity>
 
+        <!-- Family-wide theme sync (receiver side): the xx-launcher
+             broadcasts xx.launcher.THEME_CHANGED explicitly targeted at this
+             package (required since Android O for manifest receivers), so
+             exported=true here only admits senders that already name us.
+             The receiver persists the preset and restyles a running UI. -->
+        <receiver
+            android:name=".ui.theme.ThemeSyncReceiver"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="xx.launcher.THEME_CHANGED"/>
+            </intent-filter>
+        </receiver>
+
         <!-- Shipped: SyncWorker under WorkManager since WS5 — it needs no
              manifest entry of its own; WorkManager's provider/services/
              receivers merge in below. Share-out via FileProvider (WS7's

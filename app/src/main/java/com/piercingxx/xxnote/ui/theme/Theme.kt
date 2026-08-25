@@ -1,22 +1,41 @@
 package com.piercingxx.xxnote.ui.theme
 
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Typography
 import androidx.compose.material3.darkColorScheme
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
 
-// AMOLED-black monochrome (design §12): Ink surfaces, Signal primary,
-// Error reserved for the one loud state — an unresolved fork.
-private val XxNoteColors = darkColorScheme(
-    background = Tokens.Ink,
-    surface = Tokens.Ink,
-    primary = Tokens.Signal,
-    onPrimary = Tokens.Ink,
-    onBackground = Tokens.White90,
-    onSurface = Tokens.White90,
-    secondary = Tokens.Slate,
-    error = Tokens.Error,
-)
+// Monochrome over the active ground (design §12): Ink surfaces, Signal
+// primary, Error reserved for the one loud state — an unresolved fork.
+// Built per-composition (not a frozen top-level val) so the launcher theme
+// sync flipping Tokens.activeGround restyles the scheme too; on the default
+// AMOLED Night ground this is bit-for-bit the historical darkColorScheme.
+@Composable
+private fun xxNoteColors(): ColorScheme = if (Tokens.activeGround.isDark) {
+    darkColorScheme(
+        background = Tokens.Ink,
+        surface = Tokens.Ink,
+        primary = Tokens.Signal,
+        onPrimary = Tokens.Ink,
+        onBackground = Tokens.White90,
+        onSurface = Tokens.White90,
+        secondary = Tokens.Slate,
+        error = Tokens.Error,
+    )
+} else {
+    lightColorScheme(
+        background = Tokens.Ink,
+        surface = Tokens.Ink,
+        primary = Tokens.Signal,
+        onPrimary = Tokens.Ink,
+        onBackground = Tokens.White90,
+        onSurface = Tokens.White90,
+        secondary = Tokens.Slate,
+        error = Tokens.Error,
+    )
+}
 
 // Monospace IS the identity (BRAND-GUIDE.md §4): Space Mono for display roles,
 // JetBrains Mono for everything else. Explicit per-call-site styles still win;
@@ -43,7 +62,7 @@ private val XxNoteTypography = Typography(
 @Composable
 fun XxNoteTheme(content: @Composable () -> Unit) {
     MaterialTheme(
-        colorScheme = XxNoteColors,
+        colorScheme = xxNoteColors(),
         typography = XxNoteTypography,
         content = content,
     )
