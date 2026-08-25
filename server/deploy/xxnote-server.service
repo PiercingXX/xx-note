@@ -1,0 +1,34 @@
+[Unit]
+Description=xx-note fabric backend — per-user notes server on the estate fabric
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=xxnote
+Group=xxnote
+# The validate-only cluster keyring the operator secure-copies to this box.
+# xxnote-server fails closed at boot if this is missing or unreadable.
+Environment=FABRIC_CLUSTER_KEYS_PATH=/etc/xxnote/cluster-keys.json
+# Data lives on the ZFS pool at deploy (never a relative path, never the
+# install dir — see Skippy-Project/AGENTS.md, the Jal 2026-08-22 note).
+ExecStart=/usr/local/bin/xxnote-server -addr 127.0.0.1:8746 -data /srv/deep/xxnote
+Restart=on-failure
+RestartSec=5
+
+# Hardening (mirrors xx-drive's posture)
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+# Writable: the data dir only. The keyring dir stays read-only.
+ReadWritePaths=/srv/deep/xxnote
+ReadOnlyPaths=/etc/xxnote
+ProtectKernelTunables=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+MemoryDenyWriteExecute=true
+LockPersonality=true
+
+[Install]
+WantedBy=multi-user.target
