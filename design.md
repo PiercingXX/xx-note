@@ -41,7 +41,7 @@ specifications, and implementing a spec is the opposite of copying),
 RFC 4918 and RFC 6578 for WebDAV, Android and AndroidX documentation, and
 **Markor** (Apache-2.0) as *behavior reference only* — Apache-2.0 carries
 NOTICE obligations that do not belong in an all-rights-reserved repo, so it
-is read the way AOSP is read in XX-Phone: for what it does, never for how it
+is read the way AOSP is read in XX-Dialer: for what it does, never for how it
 does it. Obsidian is proprietary and studied only through its published
 vault-format documentation, which is what interoperability requires.
 
@@ -75,7 +75,7 @@ operation completes with no network. Sync is a background reconciliation,
 never a precondition for using the app.
 **R5.** **Never lose text.** No sync outcome may reduce the bytes the user
 can still read. Deletes become trash, conflicts become forks, an edit always
-outranks a delete. This is the analogue of XX-Phone's fail-open law and it
+outranks a delete. This is the analogue of XX-Dialer's fail-open law and it
 is enforced the same way — as a property test over the whole §6 table.
 **R6.** A note edited on the phone and in Obsidian on the desktop between
 syncs produces either a clean three-way merge or two visible notes. It never
@@ -143,7 +143,7 @@ relative Markdown links, resolvable by any other Markdown reader.
 | D3 | **Identity is a ULID in `id:`, not the filename** | R7. Filenames are human slugs derived from the title and are expected to change — by the user in Obsidian, by a retitle in the app. Binding identity to the path would turn every rename into a delete-plus-create, which is a data-loss shape. ULID over UUIDv4 because it sorts lexically by creation time, so a directory listing is chronological for free. |
 | D4 | **WebDAV over HTTPS to DSM, on the Tailscale MagicDNS name** | A standard protocol with a published RFC, one OkHttp client, no vendor SDK, and `curl`-reproducible failures. `PROPFIND` gives listing plus `getetag` plus `getlastmodified` in one round trip; `If-Match` gives lost-update protection. The Synology Drive Web API would give cheaper deltas but couples the app to undocumented DSM endpoints; SMB is a LAN protocol behaving badly over a WAN-shaped link; SFTP has no ETags. |
 | D5 | **XX-Note does not embed Tailscale, and does not try** | Android permits one VPN at a time, and the Tailscale client owns it. XX-Note is an ordinary HTTP client that happens to resolve a MagicDNS name; if the tailnet is down the request fails like any other network failure and the outbox waits. Embedding a second WireGuard stack to avoid a dependency the operator already runs would be strictly worse and unshippable alongside the real client. |
-| D6 | **`SyncPolicy.decide(base, local, remote)` is pure and imports nothing from `android.*`** | The XX-Phone discipline, unchanged: the part that must be correct is the part that can be proven correct on the JVM with no device. The §6 table is a truth table and it is tested as one. |
+| D6 | **`SyncPolicy.decide(base, local, remote)` is pure and imports nothing from `android.*`** | The XX-Dialer discipline, unchanged: the part that must be correct is the part that can be proven correct on the JVM with no device. The §6 table is a truth table and it is tested as one. |
 | D7 | **Three-way merge with a stored base snapshot; unmergeable hunks fork** | R6. Two-way sync without a common ancestor cannot distinguish "they added a line" from "I deleted a line," so it must either ask the user every time or guess wrong. The base snapshot costs one extra body per note in Room and removes the guess. |
 | D8 | **Conflicts fork into a second visible note using Synology's own naming** | `<slug>_<device>_<Aug-23-1004-2026>_EditConflict_1.md`. Imitating Drive's convention means a fork looks native in Drive's web UI and in the desktop client's conflict tooling, instead of introducing a third vocabulary into a folder that already has one. The fork gets a fresh `id` and a `conflictOf:` back-reference so the app can offer a side-by-side resolve. |
 | D9 | **Delete is a move to `.xxnote/trash/`, never an unlink** | R5, and Keep already works this way, so the safety mechanism and the product feature are the same mechanism. It also solves the resurrection problem: without a tombstone, a peer that still holds the file re-creates it on the next sync forever. Trash expires at 7 days (Keep's rule, adopted verbatim) and expiry is the only path to a real unlink. |
@@ -590,7 +590,7 @@ credential      id INTEGER PK (=1), host TEXT, basePath TEXT, user TEXT,
   after an unknown-result failure re-enters §6 rather than blindly retrying.
 - `sync_log` is the reason-string store behind R10 and feeds the sync
   screen; capped at 1000 rows, pruned oldest-first — same shape and same cap
-  as XX-Phone's `screen_log`.
+  as XX-Dialer's `screen_log`.
 - `credential.sealedSecret` is AES-GCM ciphertext under a StrongBox-backed
   Keystore key (R9, §4.5). The plaintext exists only on the stack, only
   while a request is being signed.
@@ -629,7 +629,7 @@ information architecture, reimplemented (§1).
    Trash (with days-remaining per note) · Sync · Settings. Label management
    is inline: create, rename with propagation across notes, delete with a
    count of what it will untag.
-4. **Sync** — the product's honesty surface, and the analogue of XX-Phone's
+4. **Sync** — the product's honesty surface, and the analogue of XX-Dialer's
    Rules tab. Top: connection state in plain words — *Connected ·
    nas.tailnet.ts.net · last sync 14:02* / *Tailnet unreachable · 3 notes
    waiting* / *Network permission off · nothing is leaving this device*.
@@ -646,7 +646,7 @@ the share over `PROPFIND` → confirm what it found (*empty folder* / *47
 existing `.md` files — these will be imported, nothing will be overwritten*)
 → device name → first sync with a progress count. Each step shows its actual
 state; a half-configured sync that looks configured is the failure this app
-most needs to design against, exactly as XX-Phone designs against a
+most needs to design against, exactly as XX-Dialer designs against a
 half-configured dialer.
 
 **Import** of an existing folder of Markdown is not a special mode — it is
@@ -734,7 +734,7 @@ com.piercingxx.xxnote
 
 `core/` imports nothing from `android.*` and carries the correctness burden —
 the §6 table, the diff3, the frontmatter round-trip. Same rule, same reason,
-same test discipline as XX-Phone's `core/`.
+same test discipline as XX-Dialer's `core/`.
 
 ---
 
@@ -838,7 +838,7 @@ engine.
 | 9 | Sync screen — state, outbox with reasons, conflict Resolve sheet, log, tallies, Test connection | R10 complete: every sync outcome explains itself |
 | 10 | Attachments — insert, hash-address, lazy download, cache budget, orphan sweep, EXIF strip, HEIC transcode | v1 |
 
-WS2 before everything, same reasoning as XX-Phone: the logic that must be
+WS2 before everything, same reasoning as XX-Dialer: the logic that must be
 correct has no Android dependencies — build it against tests first, in
 isolation. WS3–5 produce a functionally complete headless sync engine with
 no UI at all, which is the correct order for finding out whether the thing

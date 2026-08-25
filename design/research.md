@@ -6,7 +6,7 @@ background-execution rules, and the notes-app landscape (listings, help
 pages, licence files — **no copyleft source opened**, per the cleanroom rule
 in design §1).
 
-This pass is **narrower than XX-Phone's**. That spec could source almost
+This pass is **narrower than XX-Dialer's**. That spec could source almost
 everything from AOSP; this one leans on the operator's specific NAS, whose
 behavior is not documented anywhere and is WS0's job to measure. Items below
 marked **[VERIFY]** are open questions, not findings — do not build on them.
@@ -102,7 +102,7 @@ marked **[VERIFY]** are open questions, not findings — do not build on them.
 
 | Project | Licence | Consultable? |
 |---|---|---|
-| Markor | **Apache-2.0** (translations CC0-1.0) | Docs and behavior only. Apache-2.0 carries NOTICE obligations that do not belong in an all-rights-reserved repo — treated exactly as XX-Phone treats AOSP. https://github.com/gsantner/markor |
+| Markor | **Apache-2.0** (translations CC0-1.0) | Docs and behavior only. Apache-2.0 carries NOTICE obligations that do not belong in an all-rights-reserved repo — treated exactly as XX-Dialer treats AOSP. https://github.com/gsantner/markor |
 | Joplin | **AGPL-3.0** (+ a separate server licence) | **Never opened.** Doubly radioactive. https://github.com/laurent22/joplin |
 | Obsidian | **proprietary** — the core app is fully closed; only the API, the importer, and a few tools are open | Published vault-format documentation only. That documentation is the interop target for design §8, which is what interoperability requires. https://en.wikipedia.org/wiki/Obsidian_(software) |
 | Fossify Notes / Notally | GPL-3.0 | **Never opened.** |

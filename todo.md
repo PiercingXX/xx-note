@@ -46,7 +46,7 @@ workstream exit from WS5 on.
 `Frontmatter`, `Slug`, and `Ulid` import nothing from `android.*` and are
 fully testable on the JVM. WS2 finishes — every §6 row named and green, plus
 the property test — before any Android code consumes a verdict. Same
-discipline as XX-Phone WS2 and Nope-Mode WS3, for the same reason.
+discipline as XX-Dialer WS2 and Nope-Mode WS3, for the same reason.
 
 **6. Frontmatter round-trip is byte-exact or it is broken.** XX-Note owns
 the keys in design §8 and touches nothing else. An unknown key written by an

@@ -152,7 +152,7 @@ end-to-end encryption of the vault are permanent non-goals, with reasons, in
 Brand, tokens, and type come from
 [piercingxx-branding](https://github.com/PiercingXX/piercingxx-branding).
 AMOLED black, Signal white, Space Mono / JetBrains Mono. Same stack and
-conventions as [XX-Phone](https://github.com/PiercingXX/xx-phone),
+conventions as [XX-Dialer](https://github.com/PiercingXX/xx-dialer),
 [Nope-Mode](https://github.com/PiercingXX/Nope-Mode), and the Launcher —
 Compose here rather than Views, by the XX-Vitals precedent, because a live
 Markdown editor is the case that argues for it.
