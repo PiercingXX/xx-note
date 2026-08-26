@@ -28,9 +28,12 @@ class ParseException(message: String, cause: Throwable? = null) :
  *   as "empty folder" to the engine's trash-safety gate.
  *
  * Namespace prefixes are tolerated in any spelling (`D:`, `d:`, or none)
- * because only element local names matter. Entries whose `href` ends with
- * `/` are collections and are skipped — the Depth:1 listing includes the
- * folder itself.
+ * because only element local names matter. Subcollections are kept as
+ * [RemoteEntry.collection] rows so their presence can be disclosed (P2.10:
+ * subfolders are not synced — plain words at Setup confirm), while the
+ * REQUESTED directory itself is dropped via [excludeEncodedPath]: a Depth:1
+ * listing always contains the folder asked about, and the vault root is not
+ * a subfolder of itself.
  *
  * ETags are kept VERBATIM (quoting marks and any `W/` weak marker intact):
  * the value goes back on the wire inside `If-Match` exactly as the server
@@ -43,8 +46,11 @@ object PropfindParser {
     /**
      * Parse a multistatus document. Structural XML trouble throws
      * [ParseException]; only individual bad entries are skipped.
+     * [excludeEncodedPath] names the requested collection (its %-encoded
+     * absolute path — what [com.piercingxx.xxnote.net.WebDavClient] sent);
+     * that one row is never emitted.
      */
-    fun parse(xml: String): List<RemoteEntry> {
+    fun parse(xml: String, excludeEncodedPath: String? = null): List<RemoteEntry> {
         // Not-XML bytes (an empty or HTML error body wearing a 207): the
         // pull parser would accept some of these as an empty document, which
         // must never masquerade as an empty vault.
@@ -56,13 +62,16 @@ object PropfindParser {
             factory.isNamespaceAware = true
             val parser = factory.newPullParser()
             parser.setInput(java.io.StringReader(xml))
-            parseResponses(parser)
+            parseResponses(parser, excludeEncodedPath)
         } catch (e: Exception) {
             throw ParseException("unparseable multistatus body", e)
         }
     }
 
-    private fun parseResponses(parser: XmlPullParser): List<RemoteEntry> {
+    private fun parseResponses(
+        parser: XmlPullParser,
+        excludeEncodedPath: String?,
+    ): List<RemoteEntry> {
         val entries = mutableListOf<RemoteEntry>()
         var href: String? = null
         var etag: String? = null
@@ -83,7 +92,7 @@ object PropfindParser {
                         size = parser.nextText()?.trim()?.toLongOrNull()
                 }
                 XmlPullParser.END_TAG -> if (parser.localName() == "response") {
-                    entry(href, etag, size)?.let(entries::add)
+                    entry(href, etag, size, excludeEncodedPath)?.let(entries::add)
                 }
             }
             event = parser.next()
@@ -91,9 +100,16 @@ object PropfindParser {
         return entries
     }
 
-    private fun entry(href: String?, etag: String?, size: Long?): RemoteEntry? {
-        if (href == null || href.endsWith("/")) return null
-        val segment = href.substringBefore('?').trimEnd('/').substringAfterLast('/')
+    private fun entry(
+        href: String?,
+        etag: String?,
+        size: Long?,
+        excludeEncodedPath: String?,
+    ): RemoteEntry? {
+        if (href == null) return null
+        val isCollection = href.endsWith("/")
+        val clean = href.substringBefore('?').trimEnd('/')
+        val segment = clean.substringAfterLast('/')
         if (segment.isEmpty()) return null
         // One undecodable segment skips ONE entry, not the listing.
         val fileName = try {
@@ -101,12 +117,37 @@ object PropfindParser {
         } catch (_: IllegalArgumentException) {
             return null
         }
+        if (isCollection) {
+            // The vault root answering its own PROPFIND is not a subfolder.
+            // Compare path only: some servers (IIS/mod_dav) return an
+            // absolute `https://host/vault/` href while the request path is
+            // `/vault/` — scheme and authority must not participate.
+            if (excludeEncodedPath != null && hrefPath(clean) == hrefPath(excludeEncodedPath)) {
+                return null
+            }
+            return RemoteEntry(fileName = fileName, etag = null, sizeBytes = null, collection = true)
+        }
         return RemoteEntry(
             fileName = fileName,
             etag = etag?.trim()?.ifEmpty { null },
             sizeBytes = size,
         )
     }
+
+    /** Path of an href, comparable across encodings and absolute vs path-only forms. */
+    private fun hrefPath(href: String): String {
+        val noQuery = href.substringBefore('?').trim()
+        val path = if ("://" in noQuery) {
+            noQuery.substringAfter("://").substringAfter('/', missingDelimiterValue = "")
+        } else {
+            noQuery
+        }
+        return decodedPath(path)
+    }
+
+    /** Decoded `/`-joined segments of an href path — comparable across encodings. */
+    private fun decodedPath(encodedPath: String): String =
+        encodedPath.split('/').filter { it.isNotEmpty() }.joinToString("/") { decodeSegment(it) }
 
     /**
      * Percent-decoding for one path segment. `+` is preserved as a literal

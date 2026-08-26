@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- P2.12 camera capture: TakePicture targets live here — app-private
+     cache, shared with the camera app only through the FileProvider's
+     grantUriPermissions window. Nothing on the device at large can read it. -->
+<paths>
+    <cache-path
+        name="camera"
+        path="camera/"/>
+</paths>

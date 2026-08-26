@@ -2,6 +2,7 @@ package com.piercingxx.xxnote.sync
 
 import com.piercingxx.xxnote.core.BaseSnapshot
 import com.piercingxx.xxnote.core.Diff3
+import com.piercingxx.xxnote.core.Etag
 import com.piercingxx.xxnote.core.Frontmatter
 import com.piercingxx.xxnote.core.NoteState
 import com.piercingxx.xxnote.core.SyncPolicy
@@ -11,95 +12,39 @@ import com.piercingxx.xxnote.net.HttpError
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import java.io.IOException
 import java.time.Instant
 
 /**
- * WS5 assembly (design §5): plan → apply → log over the pinned ports.
- *
- * The labor table is obeyed literally: this class sees both sides plus base
- * and applies [SyncPolicy] verdicts — it never invents one. Every resolution
- * decision below reads bodies and ETags only; the clock is touched solely for
- * `conflictAt:` stamps and fresh fork ids (todo rule #3). No `android.*`
- * imports; the engine is proven by plain JVM tests against port fakes.
- *
- * **Whole-file law.** Every string here is an ENTIRE `.md` file (Ports.kt):
- * YAML frontmatter block plus Markdown body, exactly the bytes on disk or
- * server. "Dirty" therefore means whole-file inequality against
- * [BaseSnapshot.body], per core/README.md.
- *
- * **Vault safety (§9).** The first pass computes every verdict before applying
- * anything. If the pass would trash more than [syncOnce]'s threshold of the
- * live vault in one go — almost always a misconfigured path or an empty share
- * mounted over the right one — it halts as [SyncOutcome.HaltedTrashSafety]
- * with nothing applied anywhere.
- *
- * **Fork-text ruling** (documented because §6/§7 leave the fork's bytes open):
- *
- * - A **prose-conflict** refusal (`MergeOutcome.Fork("prose conflict")`) forks
- *   with `Diff3.mergeWithMarkers(base, local, remote)` over the three BODY
- *   texts, assembled as a whole file: the local note's frontmatter block
- *   verbatim, followed by the marker-annotated body. Both sides' text sits in
- *   the file inside `<<<<<<<` / `=======` / `>>>>>>>` markers so the Resolve
- *   sheet (§7) can show the conflict without re-deriving it.
- * - Every other fork — checklist item conflicts, frontmatter-key conflicts,
- *   row 11 (two files claim one id), and replan exhaustion after 3 rounds —
- *   forks with **the side NOT already in the local mirror**: the remote text,
- *   since the mirror holds local in every flow this engine runs (the
- *   vice-versa clause is reserved for future pull-side flows). Both texts then
- *   exist on this device: the mirror keeps local under the original id, the
- *   fork carries remote under a fresh id.
- *
- * **Termination ruling** (the piece §7 does not spell out). After any fork,
- * the ORIGINAL note's base is advanced to the side the fork carried:
- * `recordBase(original, <fork-carried text>, <that side's etag>)`. The next
- * sync then sees local-dirty/remote-clean → row 4 → pushes the mirror's text
- * up under `If-Match`, guarded exactly like any push. Nothing is overwritten
- * blind: if another client wrote meanwhile, row 12 replans from the new
- * triple. The original converges to its side, the fork preserves the other
- * side, and the same conflict never re-forks forever. Without this the
- * untouched base would re-enter dirty+dirty every sync — Joplin's wall of
- * conflict copies, which §7 exists to prevent.
- *
- * **Outbox ruling.** A `FAILED` put enqueues `('put', payload=localText)` and
- * moves on — offline is a normal state (§15), not an error. Queued ops are
- * NEVER replayed blindly: the durable intent lives in base-vs-mirror
- * divergence, so each sync simply re-decides the note through §6 from scratch.
- * After the pass, a queued op whose payload equals the freshly recorded base
- * body has demonstrably landed and is drained (`markOpDone`); anything else is
- * marked failed-attempted and left queued.
- *
- * **Row-11 corner ruling.** When MORE THAN ONE remote file carries the same
- * parsed id, the listing-first claim represents the id for the §6 decision;
- * each additional claimant is re-identified IN PLACE: its own bytes are kept
- * byte-for-byte while its frontmatter gains a fresh id plus `conflictOf:` /
- * `conflictAt:` (conditional PUT against the claimant's own ETag — no blind
- * write, nothing discarded). Left alone, the duplicate would re-fork on every
- * future sync; re-identified, it becomes the distinct visible note row 11
- * promises. If the conditional write fails, the duplicate is left untouched
- * and will be retried next sync — failure direction: preserve.
- *
- * **Id-less remote files.** A `.md` whose frontmatter carries no usable ULID
- * cannot be matched by identity (D3) and is skipped with a flagged log entry;
- * assigning identity to foreign files is Setup's disclosed import step
- * (§12), never the engine's silent move.
- *
- * **Attachment upload ordering (§10 law).** An attachment file must land on
- * the server BEFORE the note body referencing it, so the far side never sees
- * a broken link. Before every body-writing remote call — Push, Merge,
- * fork-upload, and row-10 recreate (a ruling: resurrect is morally a push) —
- * the outgoing whole-file text is scanned with [AttachmentRefs] (the same
- * regex AttachmentStore sweeps with), and every referenced hash whose store
- * row says `remoteKnown=false` is uploaded first via [RemoteFiles.putFile].
- * A WRITTEN upload marks the row `remoteKnown=true`; a FAILED/PRECONDITION
- * upload (or a missing local cache file) DEFERS THE WHOLE NOTE PUSH: an
- * idempotent `('attach', <full-hash>)` op is enqueued for the outbox screen
- * and a log line names the reason. The note stays base-dirty, so the next
- * pass re-decides it through §6, retries the attachment first ("pending
- * 'attach' ops retry first"), and only pushes once every reference has
- * landed. Content addressing makes dedup free: the second note referencing
- * a hash finds `remoteKnown=true` and uploads nothing. When no
- * [Attachments] implementation is wired (legacy fakes/tests), ordering is
- * disabled entirely and bodies push as before.
+ * WS5 assembly (design §5): plan → apply → log over the pinned ports. It
+ * applies [SyncPolicy] verdicts — never invents one — touches the clock only
+ * for `conflictAt:` stamps and fresh fork ids, imports nothing from
+ * `android.*`, and holds these invariants:
+ * - **Whole-file law:** every string here is an ENTIRE `.md` file; "dirty"
+ *   means whole-file inequality against [BaseSnapshot.body] (core/README.md).
+ * - **Vault safety (§9):** every verdict computes before anything applies; a
+ *   pass trashing more than [syncOnce]'s threshold halts untouched as
+ *   [SyncOutcome.HaltedTrashSafety].
+ * - **Lock law (§4.2):** every base-derived body write funnels through
+ *   [guardedPut]; there is no path from a base snapshot without a strong ETag
+ *   to an UNVERIFIED PUT. In ETAG mode that means no PUT at all without
+ *   `If-Match` (null/weak → refused). In FALLBACK mode the write is preceded
+ *   by a GET whose full-body hash must match [BaseSnapshot.body] — the
+ *   verify-then-write narrowing §4.2 discloses; a concurrent remote edit in
+ *   that window forks instead of overwriting. FALLBACK decides on the
+ *   full-body hash alone — mtime/size stay out even as pre-checks.
+ * - **Fork bytes & termination (open in §6/§7):** prose conflicts fork with
+ *   `Diff3.mergeWithMarkers` over the three BODY texts; every other fork —
+ *   checklist/frontmatter conflicts, row 11, replan exhaustion — carries the
+ *   remote text under a fresh id. After ANY fork the original's base advances
+ *   to the carried side, so the next pass pushes the mirror's text up under
+ *   `If-Match` — the same conflict never re-forks forever.
+ * - **Row-11 duplicates:** additional remote claimants of one id are
+ *   re-identified IN PLACE via their own conditional PUT; failure leaves them
+ *   untouched for retry next sync.
+ * - **Id-less remote files:** skipped with a flagged log entry; assigning
+ *   identity belongs to Setup's disclosed §12 import ([ImportPass]), never
+ *   this engine's silent move.
  */
 class SyncEngine(
     private val local: LocalFiles,
@@ -121,7 +66,18 @@ class SyncEngine(
      */
     private val newNamer: (nameExists: (String) -> Boolean) -> ConflictNamer =
         { exists -> ConflictNamer(deviceName, clock, exists) },
+    /**
+     * The §4.2 mode this pass enforces. Defaults to ETAG — the behavior of
+     * every caller constructed before modes existed and of direct test
+     * constructions. Production wiring (SyncGraph) maps the persisted
+     * `etag_mode` setting through [EtagMode.fromStored], whose absent-value
+     * default is the safe FALLBACK.
+     */
+    private val etagMode: EtagMode = EtagMode.ETAG,
 ) {
+
+    /** The configured §4.2 mode; exposed for SyncGraph's plumbing test. */
+    internal val configuredEtagMode: EtagMode get() = etagMode
 
     /** What one [syncOnce] pass did, or why it stopped before doing anything. */
     sealed interface SyncOutcome {
@@ -211,15 +167,15 @@ class SyncEngine(
 
     private fun runPass(trashSafetyThreshold: Double): SyncOutcome {
         val run = Run()
+        val localById =
+            (local.listLive() + local.listTrashed()).associateBy { it.id }
+
         val claimsById = try {
-            fetchRemoteClaims(run)
+            fetchRemoteClaims(run, localById)
         } catch (e: HttpError) {
             if (e.status == 401 || e.status == 403) return SyncOutcome.AuthFailed(e.status)
             throw e
         }
-
-        val localById =
-            (local.listLive() + local.listTrashed()).associateBy { it.id }
 
         val plans = (claimsById.keys + localById.keys)
             .toSortedSet()
@@ -293,8 +249,36 @@ class SyncEngine(
         localNote?.let { NoteState(body = it.wholeFileText, trashed = it.trashed) }
             ?: NoteState(body = null, trashed = false)
 
-    /** Depth:1 list of the live vault root, fetched whole, grouped by frontmatter id. */
-    private fun fetchRemoteClaims(run: Run): Map<String, List<Claim>> {
+    /**
+     * Depth:1 list of the live vault root, grouped by frontmatter id.
+     *
+     * **GET economy (P2.10).** In [EtagMode.ETAG] a listing entry whose ETag
+     * equals the note's recorded base ETag cannot have changed bytes on the
+     * far side (RFC 7232 strong comparison — both validators opaque and
+     * equal), so when the local mirror is CLEAN against that same base the
+     * §6 triple is already known and the GET is skipped: the claim is
+     * constructed from [BaseSnapshot.body] verbatim. This is what stops the
+     * periodic pass from downloading the whole vault every 15 minutes. The
+     * skip can never starve a write or a delete verdict:
+     *
+     * - a dirty mirror (bytes differ from base) takes the normal path — its
+     *   push/fork/merge plan needs real remote bytes;
+     * - an id with a pending outbox 'put'/'attach' op never skips, so an
+     *   owed push always re-enters §6 with fresh remote state;
+     * - a null or weak base/entry ETag never skips (nothing provable);
+     * - no local note at that path, or no base at all (untracked) → GET,
+     *   because identity itself is only parsable from the body;
+     * - a vanished file still vanishes between listing and read exactly as
+     *   before for everything that IS fetched.
+     *
+     * In FALLBACK mode there is NO short-circuit: etags are unusable there by
+     * definition, and the deciding GET is mandatory (§4.2) — that honest per
+     * -file cost is the price of the weaker mode, stated rather than hidden.
+     */
+    private fun fetchRemoteClaims(
+        run: Run,
+        localById: Map<String, LocalNote>,
+    ): Map<String, List<Claim>> {
         val entries = remote.list(VAULT_ROOT)
             .filter { entry ->
                 val name = entry.fileName
@@ -305,8 +289,33 @@ class SyncEngine(
             .sortedBy { it.fileName }
         for (entry in entries) run.remoteNames += entry.fileName
 
+        // Short-circuit candidates, ETAG mode only. Byte-cleanliness against
+        // the base IS the "no pending outbox write" test in almost every case
+        // (a failed push leaves base unadvanced); the ops check closes the
+        // revert-corner where the user typed back to the exact base bytes
+        // while an op is still queued.
+        val pendingWriteIds = if (etagMode == EtagMode.ETAG) {
+            book.pendingOps()
+                .filter { it.op == OP_PUT || it.op == OP_ATTACH }
+                .map { it.noteId }
+                .toSet()
+        } else {
+            emptySet()
+        }
+        val localByPath = if (etagMode == EtagMode.ETAG) {
+            localById.values.associateBy { it.path }
+        } else {
+            emptyMap()
+        }
+
         val byId = LinkedHashMap<String, MutableList<Claim>>()
         for (entry in entries) {
+            val unchanged = unchangedSinceBase(entry, localByPath, pendingWriteIds)
+            if (unchanged != null) {
+                val (id, base) = unchanged
+                byId.getOrPut(id) { ArrayList() }.add(Claim(entry.fileName, entry.etag, base.body))
+                continue
+            }
             val text = remote.get(entry.fileName)
             if (text == null) {
                 flag("remote file vanished between listing and read: ${entry.fileName}")
@@ -321,6 +330,27 @@ class SyncEngine(
             byId.getOrPut(id) { ArrayList() }.add(Claim(entry.fileName, entry.etag, text))
         }
         return byId
+    }
+
+    /**
+     * The P2.10 skip verdict for one listing entry: the id plus base snapshot
+     * when the claim may be served from the base's recorded bytes, or null
+     * when the GET must happen. See [fetchRemoteClaims] for the full law.
+     */
+    private fun unchangedSinceBase(
+        entry: RemoteEntry,
+        localByPath: Map<String, LocalNote>,
+        pendingWriteIds: Set<String>,
+    ): Pair<String, BaseSnapshot>? {
+        if (etagMode != EtagMode.ETAG) return null
+        val etag = entry.etag ?: return null
+        if (!Etag.isStrong(etag)) return null
+        val note = localByPath[entry.fileName] ?: return null
+        if (note.id in pendingWriteIds) return null
+        val base = book.baseOf(note.id) ?: return null
+        if (!Etag.isStrong(base.etag) || base.etag != etag) return null
+        if (note.wholeFileText != base.body) return null // dirty: needs the real plan
+        return note.id to base
     }
 
     /** True when the Trash verdict would remove a LIVE copy from some live vault. */
@@ -361,6 +391,13 @@ class SyncEngine(
                             applied(plan.id, Verdict.Push, "pushed", ok = true)
                             return
                         }
+                        is PutResult.Refused -> {
+                            // The lock law refused the write before the wire;
+                            // both sides keep their bytes and the note stays
+                            // dirty for the next pass.
+                            applied(plan.id, Verdict.Push, result.reason, ok = false)
+                            return
+                        }
                         PutResult.PRECONDITION_FAILED -> when (
                             val step = onPreconditionFailed(plan, rounds + 1, lastRefusalReason, run)
                         ) {
@@ -395,6 +432,12 @@ class SyncEngine(
                                     book.recordBase(plan.id, outcome.wholeFileText, result.etag)
                                     run.tally.merged++
                                     applied(plan.id, Verdict.Merge, "merged cleanly and pushed", ok = true)
+                                    return
+                                }
+                                is PutResult.Refused -> {
+                                    // Same lock law as Push: no lockable ETag on
+                                    // the base means the merged text waits too.
+                                    applied(plan.id, Verdict.Merge, result.reason, ok = false)
                                     return
                                 }
                                 PutResult.PRECONDITION_FAILED ->
@@ -452,6 +495,13 @@ class SyncEngine(
                             book.recordBase(plan.id, text, result.etag)
                             run.tally.resurrected++
                             applied(plan.id, Verdict.Resurrect, "edit outranks delete; re-pushed", ok = true)
+                            return
+                        }
+                        is PutResult.Refused -> {
+                            // Unreachable today: create-only writes carry no base
+                            // lock, so the §4.2 lock law has nothing to refuse.
+                            // Kept total so a future write path cannot slip by.
+                            applied(plan.id, Verdict.Resurrect, result.reason, ok = false)
                             return
                         }
                         PutResult.PRECONDITION_FAILED -> when (
@@ -563,11 +613,13 @@ class SyncEngine(
     // ---- §10 attachment upload ordering ---------------------------------------
 
     /**
-     * The gate in front of every body-writing remote call (see the class
-     * KDoc). Uploads every not-yet-remote attachment referenced by
-     * [wholeFileText]; returns true only when the body push may proceed.
-     * Unknown hash prefixes (no store row) and already-known rows pass
-     * through untouched — ordering exists for OUR pipeline's pending uploads.
+     * The §10 gate in front of every body-writing remote call (Push, Merge,
+     * fork-upload, row-10 recreate): an attachment must land BEFORE the body
+     * referencing it, so the far side never sees a broken link. Uploads every
+     * not-yet-remote attachment referenced by [wholeFileText]; returns true
+     * only when the body push may proceed. Unknown hash prefixes (no store
+     * row) and already-known rows pass through untouched — ordering exists
+     * for OUR pipeline's pending uploads.
      */
     private fun ensureAttachmentsBeforeBody(noteId: String, wholeFileText: String): Boolean {
         val store = attachments ?: return true
@@ -589,6 +641,12 @@ class SyncEngine(
                 }
                 PutResult.FAILED -> {
                     deferBodyPush(noteId, row.hash, prefix, "upload failed offline")
+                    ready = false
+                }
+                is PutResult.Refused -> {
+                    // Unreachable: attachment PUTs are unconditional by design
+                    // (immutable content addresses carry no lock to refuse).
+                    deferBodyPush(noteId, row.hash, prefix, "the write was refused")
                     ready = false
                 }
             }
@@ -777,6 +835,7 @@ class SyncEngine(
                     }
                     PutResult.PRECONDITION_FAILED -> forkPath = namer.forkName(plan.workPath)
                     PutResult.FAILED -> Unit
+                    is PutResult.Refused -> Unit // unreachable: create-only carries no lock
                 }
             }
         }
@@ -837,6 +896,24 @@ class SyncEngine(
     /** Row 11 corner: extra remote files claiming one id are re-identified in place. */
     private fun reidentifyDuplicateClaims(plan: Plan, run: Run) {
         for (extra in plan.claims.drop(1)) {
+            // The in-place re-stamp is a conditional overwrite of an existing
+            // file, so it obeys the same §4.2 lock law as any push: without a
+            // strong claimant ETag there is nothing to put against — the file
+            // is left untouched for the next sync (failure direction:
+            // preserve), never written blind.
+            if (!Etag.isStrong(extra.etag)) {
+                book.log(
+                    SyncLogEntry(
+                        noteId = plan.id,
+                        verdict = "Fork",
+                        reason = "duplicate id claimant ${extra.path} has " +
+                            (if (extra.etag == null) "no ETag" else "only a weak ETag") +
+                            " — left untouched rather than written blind; retried next sync",
+                        ok = false,
+                    ),
+                )
+                continue
+            }
             val source = extra.text
             val freshId = Ulid.generateAt(clock().toEpochMilli())
             val restamped = Frontmatter.parse(source).rewritten {
@@ -873,19 +950,93 @@ class SyncEngine(
 
     // ---- writes --------------------------------------------------------------------
 
-    /** Row 2 uses create-only; rows 4+ use `If-Match` against the recorded base. */
+    /**
+     * Row 2 uses create-only; rows 4+ must pass [guardedPut]'s lock law —
+     * this is the ONLY place a base snapshot turns into a body write.
+     */
     private fun pushWrite(plan: Plan): PutResult {
         val base = plan.base
         val text = requireNotNull(plan.localText)
         return if (base == null) {
             remote.putIfAbsent(plan.workPath, text)
         } else {
-            remote.put(plan.workPath, text, base.etag)
+            guardedPut(plan.workPath, text, base)
         }
     }
 
+    /**
+     * The merge push rides the same funnel as any push: a merged draft is
+     * still a base-derived overwrite and obeys the §4.2 lock law.
+     */
     private fun putConditional(path: String, text: String, base: BaseSnapshot): PutResult =
-        remote.put(path, text, base.etag)
+        guardedPut(path, text, base)
+
+    /**
+     * The lock law (§4.2), in one funnel. Every base-derived body write goes
+     * through here, which is what makes "base without a strong ETag → blind
+     * PUT" unreachable by construction:
+     *
+     * - **ETAG mode** — the write needs a strong recorded ETag for `If-Match`;
+     *   null or `W/` refuses as [PutResult.Refused] with plain words, nothing
+     *   is sent, nothing is lost (the note stays dirty for the next pass).
+     * - **FALLBACK mode** — the promised §4.2 detector, made real: re-GET the
+     *   remote file right before writing and compare full-body SHA-256
+ *   digests against [BaseSnapshot.body] — the hash decides, not mtime/size:
+ *   the GET it needs is mandatory anyway, so a PROPFIND-derived pre-check
+ *   could only inform a decision already made for free. Unchanged → PUT
+ *   proceeds; changed → [PutResult.PRECONDITION_FAILED], feeding row 12's
+     *   merge/fork machinery so a concurrent remote edit is forked, never
+     *   overwritten; vanished → create-only via [RemoteFiles.putIfAbsent].
+     */
+    private fun guardedPut(path: String, text: String, base: BaseSnapshot): PutResult =
+        when (etagMode) {
+            EtagMode.ETAG ->
+                if (Etag.isStrong(base.etag)) {
+                    remote.put(path, text, base.etag)
+                } else {
+                    PutResult.Refused(noLockWords(base.etag))
+                }
+            EtagMode.FALLBACK -> fallbackVerifiedPut(path, text, base)
+        }
+
+    /**
+     * FALLBACK's verify-then-write half. The GET is mandatory (§4.2 budgets
+     * one per candidate) because it is what narrows the lost-update race from
+     * "since the last sync" to "since moments ago".
+     */
+    private fun fallbackVerifiedPut(path: String, text: String, base: BaseSnapshot): PutResult {
+        val remoteText = try {
+            remote.get(path)
+        } catch (e: HttpError) {
+            if (e.status == 401 || e.status == 403) throw e // auth halts the pass upstream
+            return PutResult.FAILED
+        } catch (_: IOException) {
+            return PutResult.FAILED
+        }
+        return when {
+            // Vanished since the listing: recreate create-only, so a
+            // vanish-and-recreate race surfaces as a 412 instead of a clobber.
+            remoteText == null -> remote.putIfAbsent(path, text)
+
+            // Unchanged since the base snapshot: safe to write. A strong
+            // recorded ETag rides along as belt-and-braces; a weak one is
+            // stripped — weak If-Match never matches, a guaranteed 412 storm.
+            Etag.sha256Hex(remoteText) == Etag.sha256Hex(base.body) ->
+                remote.put(path, text, base.etag?.takeIf(Etag::isStrong))
+
+            // The far side moved since our snapshot: a concurrent remote edit.
+            // Hand it to row 12 — re-read, re-decide, merge or fork — never an
+            // overwrite, never a clock-picked winner.
+            else -> PutResult.PRECONDITION_FAILED
+        }
+    }
+
+    /** Plain words for a refused lock-less write (R10 tone), on the sync screen. */
+    private fun noLockWords(recordedEtag: String?): String =
+        "the last agreed copy of this note has " +
+            (if (recordedEtag == null) "no ETag" else "only a weak ETag") +
+            " on record — writing could overwrite someone's edit, so the write was refused; " +
+            "re-run Setup to re-check the server's ETag support (§4.2)"
 
     // ---- outbox ----------------------------------------------------------------------
 

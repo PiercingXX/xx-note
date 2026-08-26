@@ -81,7 +81,7 @@ class PropfindParserTest {
     }
 
     @Test
-    fun `collections are skipped including the folder itself`() {
+    fun `subcollections are disclosed minus the requested folder itself`() {
         val xml = """
             <D:multistatus xmlns:D="DAV:">
               <D:response>
@@ -93,15 +93,25 @@ class PropfindParserTest {
                 <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
               </D:response>
               <D:response>
+                <D:href>/home/Drive/Notes/photos/</D:href>
+                <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+              </D:response>
+              <D:response>
                 <D:href>/home/Drive/Notes/real.md</D:href>
                 <D:propstat><D:prop><D:getetag>"r"</D:getetag></D:prop></D:propstat>
               </D:response>
             </D:multistatus>
         """.trimIndent()
 
+        // P2.10: subfolders ride along flagged so their presence can be
+        // disclosed; the vault root answering its own PROPFIND never does.
         assertEquals(
-            listOf(RemoteEntry("real.md", "\"r\"", null)),
-            PropfindParser.parse(xml),
+            listOf(
+                RemoteEntry("trash", null, null, collection = true),
+                RemoteEntry("photos", null, null, collection = true),
+                RemoteEntry("real.md", "\"r\"", null),
+            ),
+            PropfindParser.parse(xml, excludeEncodedPath = "/home/Drive/Notes/"),
         )
     }
 
@@ -116,7 +126,35 @@ class PropfindParserTest {
             </D:multistatus>
         """.trimIndent()
 
-        assertEquals(emptyList(), PropfindParser.parse(xml))
+        assertEquals(emptyList(), PropfindParser.parse(xml, excludeEncodedPath = "/home/Drive/Notes/"))
+    }
+
+    @Test
+    fun `absolute href of the requested folder is still excluded`() {
+        val xml = """
+            <D:multistatus xmlns:D="DAV:">
+              <D:response>
+                <D:href>https://nas.example.ts.net:5006/home/Drive/Notes/</D:href>
+                <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+              </D:response>
+              <D:response>
+                <D:href>https://nas.example.ts.net:5006/home/Drive/Notes/photos/</D:href>
+                <D:propstat><D:prop><D:resourcetype><D:collection/></D:resourcetype></D:prop></D:propstat>
+              </D:response>
+              <D:response>
+                <D:href>https://nas.example.ts.net:5006/home/Drive/Notes/real.md</D:href>
+                <D:propstat><D:prop><D:getetag>"r"</D:getetag></D:prop></D:propstat>
+              </D:response>
+            </D:multistatus>
+        """.trimIndent()
+
+        assertEquals(
+            listOf(
+                RemoteEntry("photos", null, null, collection = true),
+                RemoteEntry("real.md", "\"r\"", null),
+            ),
+            PropfindParser.parse(xml, excludeEncodedPath = "/home/Drive/Notes/"),
+        )
     }
 
     @Test

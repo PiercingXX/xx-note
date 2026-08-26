@@ -77,10 +77,24 @@
 
         <!-- Shipped: SyncWorker under WorkManager since WS5 — it needs no
              manifest entry of its own; WorkManager's provider/services/
-             receivers merge in below. Share-out via FileProvider (WS7's
-             original scope) did not ship, so nothing declares one.
-             Deliberately NO BootReceiver — WorkManager persists periodic work
-             across reboots; keeps the four-permission claim intact. -->
+             receivers merge in below. FileProvider (P2.12): hands the camera
+             app a content URI for TakePicture captures only — exported=false,
+             grantUriPermissions-scoped, paths limited to the app-private
+             cache dir (res/xml/file_paths). Deliberately NO BootReceiver —
+             WorkManager persists periodic work across reboots; keeps the
+             four-permission claim intact. -->
+
+        <!-- P2.12 camera capture: the one shared-content surface in the app.
+             Authority is ${applicationId}-scoped; nothing else may read it. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths"/>
+        </provider>
 
     </application>
 

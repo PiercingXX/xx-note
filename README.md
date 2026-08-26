@@ -57,7 +57,7 @@ local notes app that says so.
 ```bash
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=$HOME/tools/jdk-21.0.12.1+1
-./gradlew testDebugUnitTest :core:test   # 623 green, 1 deliberate skip
+./gradlew testDebugUnitTest :core:test   # 675 green, 1 deliberate skip
 ./gradlew :app:assembleRelease           # 3.8 MB, R8 on, unsigned
 cd server && go test ./...               # 19 green, stdlib only
 ```
@@ -79,9 +79,10 @@ text and cloud accounts are permanent non-goals, with reasons, in
 
 ## More
 
-[design.md](design.md) is the spec, [todo.md](todo.md) the build plan,
-[todo-hardening.md](todo-hardening.md) the gap between "tests are green" and
-"trust it with the only copy of your writing". Brand from
+[design.md](design.md) is the spec. [todo.md](todo.md) is the remaining work
+(WS0–WS10 shipped; the app is not yet the only copy of your writing).
+[todo-hardening.md](todo-hardening.md) is the 2026-08-23 ledger of closed
+lifecycle gaps. Brand from
 [piercingxx-branding](https://github.com/PiercingXX/piercingxx-branding); set
 the theme once in XX-Launcher, the estate follows.
 

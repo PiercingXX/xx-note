@@ -11,6 +11,8 @@ import com.piercingxx.xxnote.data.XxDatabase
 import com.piercingxx.xxnote.net.CredentialVault
 import com.piercingxx.xxnote.net.HttpError
 import com.piercingxx.xxnote.net.KeystoreKeyOps
+import com.piercingxx.xxnote.sync.EtagMode
+import com.piercingxx.xxnote.sync.ImportPass
 import com.piercingxx.xxnote.sync.SyncEngine
 import com.piercingxx.xxnote.sync.SyncGraph
 import com.piercingxx.xxnote.sync.SyncScheduler
@@ -97,6 +99,7 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
                 pickedPath = null,
                 foundMd = 0,
                 idLessMd = 0,
+                hasSubfolders = false,
                 syncLines = emptyList(),
                 done = false,
             )
@@ -263,6 +266,8 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
                         foundMd = scan.found,
                         idLessMd = scan.idLess,
                         etagMode = scan.etagMode,
+                        hasWeakEtags = scan.weakEtags,
+                        hasSubfolders = scan.hasSubfolders,
                         step = SetupStep.CONFIRM,
                         message = emptyList(),
                     )
@@ -309,15 +314,25 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
                 val payload = SetupLogic.configPayload(ep, path, s.user, s.deviceName, s.etagMode)
                 withContext(Dispatchers.IO) { persist(payload, passwordNow) }
                 secret = null
-                _state.update { it.copy(message = listOf("configuration stored. running the first sync…")) }
+
+                val client = SetupLogic.buildClient(ep, path, s.user, passwordNow)
+
+                // §12's disclosed import runs BEFORE the first pass: id-less
+                // files get ids ON THE SERVER (conditional writes only), so
+                // the ordinary pull below lands them in the local vault.
+                _state.update { it.copy(message = listOf("configuration stored. importing existing notes…")) }
+                val import = withContext(Dispatchers.IO) { ImportPass(client).run() }
+                _state.update { it.copy(syncLines = import.plainWords()) }
 
                 val outcome = withContext(Dispatchers.IO) {
                     val store = VaultStore(appContext)
                     SyncEngine(
                         local = store,
-                        remote = SetupLogic.buildClient(ep, path, s.user, passwordNow),
+                        remote = client,
                         book = store,
                         deviceName = s.deviceName,
+                        // The mode Setup detected is the mode this pass enforces.
+                        etagMode = EtagMode.fromStored(s.etagMode),
                     ).syncOnce()
                 }
                 when (outcome) {
@@ -326,7 +341,7 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
                             busy = false,
                             done = true,
                             message = emptyList(),
-                            syncLines = listOf(
+                            syncLines = import.plainWords() + listOf(
                                 SetupLogic.completedSummary(
                                     pulled = outcome.pulled,
                                     pushed = outcome.pushed,

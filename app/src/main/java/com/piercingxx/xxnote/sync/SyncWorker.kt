@@ -27,29 +27,21 @@ import javax.crypto.AEADBadTagException
 import java.security.UnrecoverableEntryException
 
 /**
- * WorkManager wiring for the sync engine (design §4.4). Thin by charter: every
- * decision lives in [SyncEngine]; this class only enqueues work and maps the
- * [SyncEngine.SyncOutcome] onto result data for the sync screen.
+ * WorkManager wiring for the sync engine (design §4.4). Thin by charter:
+ * every decision lives in [SyncEngine]; this class only enqueues work and
+ * maps the [SyncEngine.SyncOutcome] onto result data for the sync screen.
  *
- * - **Foreground sync** — [enqueueExpedited]: an expedited one-time request on
- *   app resume, debounced save, and pull-to-refresh. Quota-exceeded falls back
- *   to a normal work request rather than crashing. Enqueued with
- *   APPEND_OR_REPLACE so a save during an in-flight pass still queues its own
- *   follow-up sync instead of being dropped (M5) — but collapsed to AT MOST
- *   one queued follow-up (hardening #7): a save landing while a pass runs
- *   sets a flag the pass consumes at completion, instead of chaining dozens
- *   of redundant full passes behind each other.
- * - **Background sync** — [enqueuePeriodic] delegates to
- *   [SyncScheduler.ensurePeriodic]: 15-minute floor, network constraint, KEEP
- *   policy. Doze defers it; that is acceptable and stated.
- *
- * **Deliberate deviation from design §13's component list: there is no
- * BOOT_COMPLETED receiver.** WorkManager persists periodic work across reboots
- * natively, so a receiver would be dead weight — and adding
- * `RECEIVE_BOOT_COMPLETED` would break §13's four-permission claim
- * (`INTERNET`, `ACCESS_NETWORK_STATE`, `CAMERA`, `POST_NOTIFICATIONS`, nothing
- * else), which is the short-list-is-the-claim rule (R8, todo standing rules).
- * This ruling supersedes §13's mention of the receiver.
+ * - **Expedited sync** ([enqueueExpedited]) uses APPEND_OR_REPLACE so a save
+ *   during an in-flight pass still queues its own follow-up (M5) — collapsed
+ *   to AT MOST one queued follow-up via the completion-consumed flag
+ *   (hardening #7). Quota-exceeded degrades to a normal work request rather
+ *   than crashing.
+ * - **Background sync** ([enqueuePeriodic]) delegates to
+ *   [SyncScheduler.ensurePeriodic]: 15-minute floor, network constraint,
+ *   KEEP policy. Doze defers it; acceptable and stated.
+ * - **No BOOT_COMPLETED receiver** (supersedes design §13's mention):
+ *   WorkManager persists periodic work across reboots natively, and the
+ *   permission would break §13's four-permission claim (R8).
  */
 class SyncWorker(
     appContext: Context,
@@ -237,6 +229,14 @@ object SyncGraph {
     /** Settings key holding the operator-chosen device name (§7 naming). */
     const val SETTING_DEVICE_NAME = "device_name"
 
+    /**
+     * Settings key holding the §4.2 ETag mode Setup detected (SetupLogic's
+     * KEY_ETAG_MODE; kept equal by test). Read through [EtagMode.fromStored],
+     * whose absent/unknown default is FALLBACK — installs configured before
+     * modes existed get the mode that can never blind-write.
+     */
+    const val SETTING_ETAG_MODE = "etag_mode"
+
     /** Settings key holding the HTTP status of the last auth refusal (R10). */
     const val SETTING_CREDENTIAL_STALE = "credentialStale"
 
@@ -396,12 +396,20 @@ object SyncGraph {
                 ?: Build.MODEL?.takeUnless { it.isBlank() }
                 ?: "xx-device"
 
+            // §4.2 mode plumbing: the promise Setup stored is the behavior the
+            // engine enforces. Absent row (pre-mode installs) → FALLBACK, the
+            // safe direction — see EtagMode.fromStored.
+            val etagMode = EtagMode.fromStored(
+                runBlocking { db.settingDao().get(SETTING_ETAG_MODE) },
+            )
+
             val engine = SyncEngine(
                 local = store,
                 remote = remoteClient,
                 book = store,
                 deviceName = deviceName,
                 attachments = attachmentStore,
+                etagMode = etagMode,
             )
             synchronized(this) {
                 // Generation guard: an invalidate() landing mid-build (stale

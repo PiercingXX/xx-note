@@ -2,9 +2,11 @@ package com.piercingxx.xxnote.setup
 
 import com.piercingxx.xxnote.net.HttpError
 import com.piercingxx.xxnote.setup.helpers.FakeRemote
+import com.piercingxx.xxnote.sync.EtagMode
 import com.piercingxx.xxnote.sync.PutResult
 import com.piercingxx.xxnote.sync.RemoteEntry
 import com.piercingxx.xxnote.sync.SyncGraph.SETTING_DEVICE_NAME
+import com.piercingxx.xxnote.sync.SyncGraph.SETTING_ETAG_MODE
 import com.piercingxx.xxnote.ui.setup.SetupLogic
 import com.piercingxx.xxnote.ui.setup.SetupLogic.Endpoint
 import java.io.IOException
@@ -44,6 +46,55 @@ class SetupLogicTest {
             "3 of 47 have no id yet — those receive one on import",
             SetupLogic.idlessLine(found = 47, idLess = 3),
         )
+    }
+
+    // ---- P2.10 subfolder disclosure ---------------------------------------------
+
+    @Test
+    fun `subfolders are disclosed in plain words`() {
+        val entries = listOf(
+            RemoteEntry("notes.md", "\"e1\"", 10L),
+            RemoteEntry("photos", null, null, collection = true),
+        )
+        assertTrue(SetupLogic.hasUnsyncedSubfolders(entries))
+        assertEquals(
+            "this folder has subfolders — files inside them stay on the server",
+            SetupLogic.subfolderLine(true),
+        )
+    }
+
+    @Test
+    fun `known non-note dirs and plain listings disclose nothing`() {
+        val known = listOf(
+            RemoteEntry("attachments", null, null, collection = true), // §10 attachments dir
+            RemoteEntry(".xxnote", null, null, collection = true),     // trash namespace
+            RemoteEntry("a.md", "\"e1\"", 10L),
+        )
+        assertTrue(!SetupLogic.hasUnsyncedSubfolders(known))
+        assertNull(SetupLogic.subfolderLine(false))
+        assertTrue(!SetupLogic.hasUnsyncedSubfolders(emptyList()))
+    }
+
+    @Test
+    fun `confirmFolder discloses subfolders without tainting etag detection`() {
+        val remote = FakeRemote().apply {
+            seed(
+                "home/Drive",
+                listOf(
+                    RemoteEntry("grocery.md", "\"e1\"", 10L),
+                    // Collections answer no getetag by nature — they are not
+                    // evidence of a weak server, so mode stays ETAG.
+                    RemoteEntry("archive", null, null, collection = true),
+                ),
+            )
+            body("home/Drive/grocery.md", doc(id = "01J9F2KA0CDEFGHJKMNPQRSTVW"))
+        }
+
+        val scan = SetupLogic.confirmFolder(remote, "home/Drive")
+
+        assertEquals(1, scan.found)
+        assertTrue(scan.hasSubfolders)
+        assertEquals(SetupLogic.ETAG_MODE_ETAG, scan.etagMode)
     }
 
     // ---- step 4: prefix candidates -------------------------------------------------
@@ -141,7 +192,7 @@ class SetupLogicTest {
                     RemoteEntry("readme.txt", "\"e4\"", 40L),
                 ),
             )
-            body("home/Drive/grocery.md", doc(id = "01J9F2EXAMPLEEXAMPLEEXAMPLE0"))
+            body("home/Drive/grocery.md", doc(id = "01J9F2KA0CDEFGHJKMNPQRSTVW"))
             body("home/Drive/no-id.md", doc(id = null))
         }
 
@@ -153,24 +204,88 @@ class SetupLogicTest {
     }
 
     @Test
-    fun `etag mode falls back when any entry or the whole folder lacks getetag`() {
+    fun `etag mode falls back only when an entry lacks a strong getetag`() {
         assertEquals(
             SetupLogic.ETAG_MODE_ETAG,
             SetupLogic.etagModeOf(listOf(RemoteEntry("a.md", "\"x\"", 1L), RemoteEntry("b.md", "\"y\"", 2L))),
         )
+        // A hole in the listing: one entry without any validator.
         assertEquals(
             SetupLogic.ETAG_MODE_FALLBACK,
             SetupLogic.etagModeOf(listOf(RemoteEntry("a.md", "\"x\"", 1L), RemoteEntry("b.md", null, 2L))),
         )
-        assertEquals(SetupLogic.ETAG_MODE_FALLBACK, SetupLogic.etagModeOf(emptyList()))
+        // A weak validator can never guard If-Match — it counts as unusable.
+        assertEquals(
+            SetupLogic.ETAG_MODE_FALLBACK,
+            SetupLogic.etagModeOf(listOf(RemoteEntry("a.md", "W/\"w\"", 1L))),
+        )
     }
 
     @Test
-    fun `id-less means no non-blank frontmatter id`() {
+    fun `empty folder listing selects etag mode because nothing unusable was observed`() {
+        // First-run empty vaults land here: absence of evidence is not a
+        // weak server, and fallback would be a lie about what was seen.
+        assertEquals(SetupLogic.ETAG_MODE_ETAG, SetupLogic.etagModeOf(emptyList()))
+    }
+
+    @Test
+    fun `weak etags are named plainly at confirm instead of fork-storming later`() {
+        assertEquals(
+            "this server returns ETags on every file — sync can lock writes properly",
+            SetupLogic.etagLine(SetupLogic.ETAG_MODE_ETAG),
+        )
+        val weakLine = SetupLogic.etagLine(SetupLogic.ETAG_MODE_FALLBACK, weakEtags = true)
+        assertTrue(weakLine.contains("weak"))
+        assertTrue(weakLine.contains("can't lock writes"))
+        assertTrue(
+            SetupLogic.etagLine(SetupLogic.ETAG_MODE_FALLBACK) ==
+                "this server does not return usable ETags — sync checks each file's contents against its last-synced copy right before writing, so a concurrent edit is forked, never overwritten; weaker protection, known and stated (§4.2)",
+        )
+    }
+
+    @Test
+    fun `confirmFolder surfaces weakness detected in the listing`() {
+        val remote = FakeRemote().apply {
+            seed(
+                "home",
+                listOf(
+                    RemoteEntry("strong.md", "\"e1\"", 10L),
+                    RemoteEntry("weak.md", "W/\"w1\"", 20L),
+                ),
+            )
+        }
+
+        val scan = SetupLogic.confirmFolder(remote, "home")
+
+        assertEquals(2, scan.found)
+        assertTrue(scan.weakEtags)
+        assertEquals(SetupLogic.ETAG_MODE_FALLBACK, scan.etagMode)
+    }
+
+    @Test
+    fun `stored keys stay aligned with what SyncGraph reads`() {
+        // KEY_ETAG_MODE is written by Setup and read by SyncGraph — same bytes
+        // or the promised mode silently stops being enforced.
+        assertEquals(SETTING_ETAG_MODE, SetupLogic.KEY_ETAG_MODE)
+        assertEquals(EtagMode.ETAG.stored, SetupLogic.ETAG_MODE_ETAG)
+        assertEquals(EtagMode.FALLBACK.stored, SetupLogic.ETAG_MODE_FALLBACK)
+        assertEquals(SETTING_DEVICE_NAME, SetupLogic.KEY_DEVICE_NAME)
+    }
+
+    @Test
+    fun `id-less means no usable frontmatter id`() {
+        // The predicate must match ImportPass's stamp rule exactly: absent,
+        // blank, or not a canonical ULID all receive one on import — so the
+        // confirm count is exactly the set the pass rewrites.
         assertTrue(SetupLogic.isIdLess(doc(id = null)))
         assertTrue(SetupLogic.isIdLess(doc(id = "")))
         assertTrue(SetupLogic.isIdLess("just body, no frontmatter\n"))
-        assertTrue(!SetupLogic.isIdLess(doc(id = "01J9F2EXAMPLEEXAMPLEEXAMPLE0")))
+        // Present but NOT a canonical ULID (wrong length, X not in Crockford
+        // base32): the engine would never sync it, so it counts as id-less.
+        // Present but NOT a canonical ULID (wrong length, X not in Crockford
+        // base32): the engine would never sync it, so it counts as id-less.
+        assertTrue(SetupLogic.isIdLess(doc(id = "01J9F2EXAMPLEEXAMPLEEXAMPLE0")))
+        assertTrue(!SetupLogic.isIdLess(doc(id = "01J9F2KA0CDEFGHJKMNPQRSTVW")))
     }
 
     // ---- step 3 classification -----------------------------------------------------------------

@@ -1,24 +1,25 @@
 package com.piercingxx.xxnote.ui.editor
 
-import android.graphics.Bitmap
 import androidx.test.core.app.ApplicationProvider
 import com.piercingxx.xxnote.core.Frontmatter
 import com.piercingxx.xxnote.core.Ulid
 import com.piercingxx.xxnote.data.VaultStore
-import java.io.FileOutputStream
+import java.io.IOException
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
-import org.junit.Assume.assumeNoException
-import org.junit.Assume.assumeTrue
 import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.io.File
+import kotlin.concurrent.thread
 
 /**
  * H3/M6/L8 gate at the view-model level (Robolectric: real vault mirror +
@@ -159,27 +160,12 @@ class EditorViewModelTest {
 
     // ---- WS10 gallery insert ---------------------------------------------------
 
-    /**
-     * A strippable JPEG via [Bitmap.compress], with the repo's AMBIGUOUS
-     * escape where this Robolectric build cannot encode one.
-     */
-    private fun jpegBytes(): ByteArray? = try {
-        val bitmap = Bitmap.createBitmap(2, 2, Bitmap.Config.ARGB_8888)
-        bitmap.eraseColor(0xFF336699.toInt())
-        val scratch = File(context.cacheDir, "editor-fixture-${System.nanoTime()}.jpg")
-        FileOutputStream(scratch).use { bitmap.compress(Bitmap.CompressFormat.JPEG, 90, it) }
-        val bytes = scratch.readBytes()
-        scratch.delete()
-        assumeTrue(bytes.isNotEmpty())
-        bytes
-    } catch (e: Exception) {
-        assumeNoException(e)
-        null
-    }
+    /** 1×1 JPEG, hardcoded so this test never skips when Robolectric has no encoder. */
+    private fun jpegBytes(): ByteArray = JPEG_1X1.chunked(2).map { it.toInt(16).toByte() }.toByteArray()
 
     @Test
     fun galleryInsertFoldsIntoSavePipelineAtCursor() {
-        val jpeg = jpegBytes() ?: return
+        val jpeg = jpegBytes()
         val id = Ulid.generate()
         store.write(id, noteText(id, "With image", "hello world\n"))
 
@@ -311,4 +297,90 @@ class EditorViewModelTest {
         assertEquals(original, store.read(id)!!.wholeFileText)
         assertNull(vm.state.value.saveError)
     }
+
+    /**
+     * A vault write that throws must leave the dirt RAISED — the flag retires
+     * only after a write RETURNS — with the failure spoken in words; the very
+     * next flush retries and lands the bytes. Synchronous end to end because
+     * the flush blocks its caller until the outcome is settled.
+     */
+    @Test
+    fun failedWriteKeepsDirtRaisedAndTheNextFlushRetries() {
+        val id = Ulid.generate()
+        val original = noteText(id, "Fragile", "before the failure\n")
+        store.write(id, original)
+        vm.load(id)
+        await { it.ready }
+
+        var failures = 1
+        vm.writeThrough = { noteId, text ->
+            if (failures > 0) {
+                failures--
+                throw IOException("disk full")
+            }
+            store.write(noteId, text)
+        }
+
+        vm.onBodyChange("written on the retry\n")
+        vm.flushPendingSave()
+
+        assertTrue(
+            "expected not-saved words, got: ${vm.state.value.saveError}",
+            vm.state.value.saveError!!.contains(EditorViewModel.NOT_SAVED_WORDS),
+        )
+        assertEquals("a failed write must not move the bytes", original, store.read(id)!!.wholeFileText)
+        assertTrue("dirt must survive a failed write", vm.hasUnsavedEdits())
+
+        vm.flushPendingSave()
+
+        assertNull(vm.state.value.saveError)
+        assertFalse(vm.hasUnsavedEdits())
+        assertTrue(store.read(id)!!.wholeFileText.contains("written on the retry"))
+    }
+
+    /**
+     * The flush JOINS a persist that is already mid-write instead of racing
+     * it: exactly ONE write lands, the flush returns only after that write
+     * completes, and the flag retires with it — never before the bytes are
+     * durable.
+     */
+    @Test
+    fun flushJoinsAMidFlightPersistSoExactlyOneWriteLands() {
+        val id = Ulid.generate()
+        store.write(id, noteText(id, "Join", "joined mid-write\n"))
+        vm.load(id)
+        await { it.ready }
+
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        val writes = AtomicInteger()
+        vm.writeThrough = { noteId, text ->
+            writes.incrementAndGet()
+            entered.countDown()
+            release.await(10, TimeUnit.SECONDS)
+            store.write(noteId, text)
+        }
+
+        vm.onBodyChange("joined mid-write, flushed\n")
+        assertTrue("the debounced persist never started", entered.await(20, TimeUnit.SECONDS))
+
+        // The write is parked mid-flight; the flush must JOIN it, not clear
+        // the flag and double-write around it.
+        val flushDone = CountDownLatch(1)
+        thread(name = "editor-flush") { vm.flushPendingSave(); flushDone.countDown() }
+        assertFalse(
+            "flush returned while the joined persist was still mid-write",
+            flushDone.await(300, TimeUnit.MILLISECONDS),
+        )
+
+        release.countDown()
+        assertTrue(flushDone.await(10, TimeUnit.SECONDS))
+        assertEquals("join means one write, not two", 1, writes.get())
+        assertFalse(vm.hasUnsavedEdits())
+        assertTrue(store.read(id)!!.wholeFileText.contains("flushed"))
+    }
 }
+
+/** 1×1 JPEG (SOI + JFIF + DQT + SOF0 + DHT + SOS + EOI). */
+private const val JPEG_1X1 =
+    "ffd8ffe000104a46494600010100000100010000ffdb004300080606070605080707070909080a0c140d0c0b0b0c1912130f141d1a1f1e1d1a1c1c20242e2720222c231c1c2837292c30313434341f27393d38323c2e333432ffc0000b080001000101011100ffc4001f0000010501010101010100000000000000000102030405060708090a0bffc400b5100002010303020403050504040000017d01020300041105122131410613516107227114328191a1082342b1c11552d1f02433627282090a161718191a25262728292a3435363738393a434445464748494a535455565758595a636465666768696a737475767778797a838485868788898a92939495969798999aa2a3a4a5a6a7a8a9aab2b3b4b5b6b7b8b9bac2c3c4c5c6c7c8c9cad2d3d4d5d6d7d8d9dae1e2e3e4e5e6e7e8e9eaf1f2f3f4f5f6f7f8f9faffda000c03010002110311003f00fbffd9"

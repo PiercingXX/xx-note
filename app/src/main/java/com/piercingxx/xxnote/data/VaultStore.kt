@@ -34,21 +34,18 @@ class TrashedNoteException(message: String) : IllegalStateException(message)
 /**
  * The near side of the sync engine (§5): the `filesDir/vault` mirror (D14)
  * backed by Room as cache + outbox. Implements [LocalFiles] and
- * [SyncBookkeeping]; WebDavClient implements the far side.
+ * [SyncBookkeeping]. Laws:
+ * - The vault FILE is truth; Room rows rebuild from disk whenever they
+ *   disagree (D1) — [read]/[listLive] never trust `note.body`.
+ * - Identity is the frontmatter `id`, never the path (D3/R7); a renamed file
+ *   is found and its row rebuilt (§9).
+ * - Every mirror write is temp-then-rename (§15): failure leaves the previous
+ *   bytes intact, no `.tmp` residue.
+ * - Trash/restore moves to/from `.xxnote/trash/`, stamping `trashedAt:` via
+ *   [FrontmatterDocument.rewritten]; never unlink (D9).
  *
- * Laws this class enforces:
- * - The vault file is truth; a Room row is rebuilt from the file whenever they
- *   disagree (D1). [read]/[listLive] re-read from disk, never from `note.body`.
- * - Identity is the frontmatter `id`, never the path (D3/R7) — a file renamed
- *   on disk is found, its row's path rebuilt (§9).
- * - Every mirror write is temp-then-rename (§15): a failed write leaves the
- *   previous bytes intact and no `.tmp` residue behind.
- * - Trash is a move to `.xxnote/trash/` with `trashedAt:` stamped via
- *   [FrontmatterDocument.rewritten]; restore reverses it. Never unlink (D9).
- *
- * The ports are synchronous by design (engine fakes implement them too), so
- * Room calls run inside [runBlocking]; callers are engine coroutines or test
- * threads, never the main thread.
+ * Ports are synchronous by design, so Room calls run inside [runBlocking];
+ * callers are engine coroutines or test threads, never main.
  */
 class VaultStore internal constructor(
     private val mirrorRoot: File,

@@ -1,7 +1,6 @@
 package com.piercingxx.xxnote.sync
 
 import com.piercingxx.xxnote.core.Frontmatter
-import com.piercingxx.xxnote.core.NoteType
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertIs
@@ -93,7 +92,11 @@ class MergeEngineTest {
     }
 
     @Test
-    fun `checklist degraded to note on one side falls back to the prose path`() {
+    fun `checklist on any side without all three forks rather than merging by lines`() {
+        // D18/D19: a checklist body never merges through Diff3 — not when one
+        // side degraded to note, not in any mixed-type corner. The old prose
+        // fallback could interleave item states line-wise; forking is the
+        // only lossless-and-honest reading.
         val base = note(type = "checklist", body = "- [ ] a\n- [ ] b\n")
         val local = note(type = "note", body = "- [x] a\n- [ ] b\n")
         val remote = note(type = "checklist", body = "- [ ] a\n- [x] b\n")
@@ -101,7 +104,22 @@ class MergeEngineTest {
         val outcome = MergeEngine.merge(base, local, remote)
 
         val fork = assertIs<MergeEngine.MergeOutcome.Fork>(outcome)
-        assertEquals("prose conflict", fork.reason)
+        assertEquals("checklist type transition", fork.reason)
+    }
+
+    @Test
+    fun `type transition with both live sides checklist forks instead of diff3`() {
+        // Newly reachable from the editor resync path: base was a plain note,
+        // local and remote both converged on checklist with different items.
+        // No item-wise reading exists against a prose base — fork, visibly.
+        val base = note(type = "note", body = "buy milk\n")
+        val local = note(type = "checklist", body = "- [x] buy milk\n- [ ] eggs\n")
+        val remote = note(type = "checklist", body = "- [ ] buy milk\n- [x] tofu\n")
+
+        val outcome = MergeEngine.merge(base, local, remote)
+
+        val fork = assertIs<MergeEngine.MergeOutcome.Fork>(outcome)
+        assertEquals("checklist type transition", fork.reason)
     }
 
     @Test
@@ -278,26 +296,29 @@ class MergeEngineTest {
 
     @Test
     fun type_and_created_follow_the_same_three_way_rule_as_title() {
-        // Only remote moved type → adopted; only local moved created → kept.
-        val base = note(type = "note", created = "2026-08-20T09:00:00Z", body = "hello\n")
-        val local = note(
-            type = "note",
-            created = "2026-08-20T09:30:00Z",
-            body = "hello local\n",
-        )
-        val remote = note(
-            type = "checklist",
-            created = "2026-08-20T09:00:00Z",
-            body = "hello\n",
-        )
+        // Only remote moved created → adopted; only local moved created → kept.
+        val base = note(created = "2026-08-20T09:00:00Z", body = "hello\n")
+        val local = note(created = "2026-08-20T09:30:00Z", body = "hello local\n")
+        val remote = note(created = "2026-08-20T09:00:00Z", body = "hello\n")
 
         val merged = assertIs<MergeEngine.MergeOutcome.Merged>(MergeEngine.merge(base, local, remote))
         val doc = Frontmatter.parse(merged.wholeFileText)
-        assertEquals(NoteType.CHECKLIST, doc.type)
         assertEquals("2026-08-20T09:30:00Z", doc.created)
 
-        // Both moved apart on created → fork naming the key. (Type cannot
-        // fork: with two values, one side always equals base.)
+        // A type move onto a body that then must NOT route through Diff3
+        // (D18/D19): remote became a checklist while local edited the prose.
+        // No item-wise reading exists against a prose base — fork, visibly,
+        // rather than emit a prose body wearing a checklist label.
+        val baseC = note(type = "note", body = "hello\n")
+        val localC = note(type = "note", body = "hello local\n")
+        val remoteC = note(type = "checklist", body = "hello\n")
+        val typeFork = MergeEngine.merge(baseC, localC, remoteC)
+        assertEquals(
+            "checklist type transition",
+            assertIs<MergeEngine.MergeOutcome.Fork>(typeFork).reason,
+        )
+
+        // Both moved apart on created → fork naming the key.
         val base2 = note(created = "2026-08-20T09:00:00Z", body = "hello\n")
         val local2 = note(created = "2026-08-20T10:00:00Z", body = "hello\n")
         val remote2 = note(created = "2026-08-20T11:00:00Z", body = "hello\n")

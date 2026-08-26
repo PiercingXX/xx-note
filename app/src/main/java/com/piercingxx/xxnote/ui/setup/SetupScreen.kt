@@ -101,10 +101,11 @@ fun SetupScreen(onConfigured: () -> Unit) {
                     style = TextStyle(fontFamily = SpaceMono, fontSize = 15.sp, color = Tokens.White90),
                 )
                 StatusLines(
-                    listOf(
+                    listOfNotNull(
                         SetupLogic.idlessLine(s.foundMd, s.idLessMd),
-                        SetupLogic.etagLine(s.etagMode),
+                        SetupLogic.etagLine(s.etagMode, s.hasWeakEtags),
                         "${SetupLogic.displayPath(s.pickedPath.orEmpty())} will hold the vault",
+                        SetupLogic.subfolderLine(s.hasSubfolders),
                     ),
                     color = Tokens.White50,
                 )

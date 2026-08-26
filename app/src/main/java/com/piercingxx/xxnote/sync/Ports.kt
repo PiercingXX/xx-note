@@ -11,11 +11,20 @@ package com.piercingxx.xxnote.sync
  * [RemoteFiles]. Engine tests run against fakes — no Android, no network.
  */
 
-/** One entry of a PROPFIND Depth:1 listing of the live vault directory. */
+/**
+ * One entry of a PROPFIND Depth:1 listing of the live vault directory.
+ *
+ * Subcollections ride along as [collection] rows so their presence can be
+ * DISCLOSED (P2.10: nested folders are not synced — flat-root by design);
+ * they are never walked, never fetched, and every note-shaped consumer
+ * filters on `.md` anyway. The listing's own directory is excluded by the
+ * client — a subfolder means a child, not the vault root itself.
+ */
 data class RemoteEntry(
     val fileName: String,
     val etag: String?,
     val sizeBytes: Long?,
+    val collection: Boolean = false,
 )
 
 sealed interface PutResult {
@@ -30,6 +39,42 @@ sealed interface PutResult {
 
     /** Transport or HTTP failure; see the client's error surface. */
     data object FAILED : PutResult
+
+    /**
+     * The write was refused BEFORE touching the wire — produced only by the
+     * sync layer's §4.2 lock law ([SyncEngine.guardedPut] and the Setup
+     * import pass), never by [com.piercingxx.xxnote.net.WebDavClient].
+     * A base snapshot or listing entry with a null or weak ETag must never
+     * become an unconditional PUT, so such a write is refused outright and
+     * [reason] carries the plain words for the sync screen. A refused write
+     * lost nothing: both sides keep their bytes.
+     */
+    data class Refused(val reason: String) : PutResult
+}
+
+/**
+ * §4.2's two operating modes, detected once at Setup (R10: stated because the
+ * guarantee differs) and persisted under `etag_mode`.
+ *
+ * - [ETAG] — every listed file answered with a strong ETag; writes lock with
+ *   `If-Match` against the recorded base ETag.
+ * - [FALLBACK] — ETags are missing or weak on this server; before any body
+ *   PUT the engine re-reads the file and compares it against the base
+ *   snapshot's bytes (full-body SHA-256). The lost-update race is narrowed,
+ *   not closed — weaker protection, known and stated.
+ *
+ * [fromStored] maps the persisted string; an absent or unknown value falls
+ * back to [FALLBACK] — installs configured before modes existed get the mode
+ * that can never blind-write, which is the safe direction.
+ */
+enum class EtagMode(val stored: String) {
+    ETAG("etag"),
+    FALLBACK("fallback"),
+    ;
+
+    companion object {
+        fun fromStored(raw: String?): EtagMode = entries.firstOrNull { it.stored == raw } ?: FALLBACK
+    }
 }
 
 /** The far side: the WebDAV vault. One host, enforced upstream (R8). */

@@ -3,6 +3,7 @@ package com.piercingxx.xxnote.sync
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.piercingxx.xxnote.data.CredentialEntity
+import com.piercingxx.xxnote.data.SettingEntity
 import com.piercingxx.xxnote.data.XxDatabase
 import com.piercingxx.xxnote.net.AesGcmKeyOps
 import com.piercingxx.xxnote.net.CredentialVault
@@ -68,6 +69,34 @@ class SyncGraphTest {
         SyncGraph.invalidate()
 
         assertNotSame(first, SyncGraph.engine(context))
+    }
+
+    @Test
+    fun storedEtagModeSettingDrivesTheConfiguredEngineMode() {
+        seedCredential(sealedFor("correct horse battery staple"))
+
+        writeSetting(SyncGraph.SETTING_ETAG_MODE, EtagMode.FALLBACK.stored)
+        assertEquals(EtagMode.FALLBACK, SyncGraph.engine(context)!!.configuredEtagMode)
+
+        // Setup re-runs overwrite the row; invalidate() makes the next build
+        // read it — the stored promise becomes the enforced law.
+        SyncGraph.invalidate()
+        writeSetting(SyncGraph.SETTING_ETAG_MODE, EtagMode.ETAG.stored)
+        assertEquals(EtagMode.ETAG, SyncGraph.engine(context)!!.configuredEtagMode)
+    }
+
+    @Test
+    fun absentEtagModeSettingFallsToTheSafeFallback() {
+        seedCredential(sealedFor("correct horse battery staple"))
+
+        assertNull(readSetting(SyncGraph.SETTING_ETAG_MODE))
+        assertEquals(EtagMode.FALLBACK, SyncGraph.engine(context)!!.configuredEtagMode)
+    }
+
+    private fun writeSetting(key: String, value: String) {
+        val db = XxDatabase.builder(context).build()
+        runBlocking { db.settingDao().put(SettingEntity(key = key, value = value)) }
+        db.close()
     }
 
     @Test

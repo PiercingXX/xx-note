@@ -12,7 +12,9 @@ you own, on hardware you own, that survives the app being deleted, the
 company folding, and the format going out of fashion. That is §6 through
 §10, and everything else is in service of it.
 
-**Status:** specification only. Nothing built.
+**Status:** built and JVM-tested — the app and core unit suites run green in
+CI. Device-unproven: WS0 has not run, and androidTest has never executed on
+hardware.
 **Build plan:** [todo.md](todo.md) — workstreams, gates, and the order to do them in.
 **Screens:** [design/xx-note-screens.html](design/xx-note-screens.html) — the mockup.
 **Research:** [design/research.md](design/research.md) — sourced findings behind this spec.

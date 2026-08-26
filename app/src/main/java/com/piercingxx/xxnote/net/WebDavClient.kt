@@ -95,7 +95,12 @@ class WebDavClient(
                     "PROPFIND ${response.request.url.redact()} failed: HTTP ${response.code}",
                 )
             }
-            PropfindParser.parse(checkNotNull(response.body).string())
+            // The listing always contains the directory asked about; it is
+            // not a subfolder of itself, so it never rides along (P2.10).
+            PropfindParser.parse(
+                checkNotNull(response.body).string(),
+                excludeEncodedPath = response.request.url.encodedPath,
+            )
         }
     }
 

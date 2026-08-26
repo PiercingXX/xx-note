@@ -27,6 +27,10 @@ data class SetupState(
     val foundMd: Int = 0,
     val idLessMd: Int = 0,
     val etagMode: String = SetupLogic.ETAG_MODE_FALLBACK,
+    /** The listing showed weak (`W/`) ETags — said plainly at confirm (§4.2). */
+    val hasWeakEtags: Boolean = false,
+    /** P2.10: the vault root has subfolders sync will never walk. */
+    val hasSubfolders: Boolean = false,
     // step 6 — device name
     val deviceName: String = "",
     // cross-cutting

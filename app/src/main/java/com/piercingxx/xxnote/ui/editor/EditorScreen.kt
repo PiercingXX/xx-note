@@ -1,5 +1,8 @@
 package com.piercingxx.xxnote.ui.editor
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
@@ -50,6 +53,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -58,6 +62,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -71,10 +76,13 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.em
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
+import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
+import com.piercingxx.xxnote.core.Ulid
 import com.piercingxx.xxnote.ui.grid.NoteTone
 import com.piercingxx.xxnote.ui.grid.canonicalColorFor
 import com.piercingxx.xxnote.ui.grid.hairlineColor
@@ -85,6 +93,7 @@ import com.piercingxx.xxnote.ui.labels.LabelOps
 import com.piercingxx.xxnote.ui.theme.JetBrainsMono
 import com.piercingxx.xxnote.ui.theme.SpaceMono
 import com.piercingxx.xxnote.ui.theme.Tokens
+import java.io.File
 import kotlin.math.roundToInt
 
 /**
@@ -126,17 +135,23 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
     LaunchedEffect(noteId) { vm.load(noteId) }
     LaunchedEffect(state.missing) { if (state.missing) onClose() }
 
-    // Hardening #2: the editor is the one screen where losing state actually
-    // costs writing, so unlike the list screens (whose observers only
-    // refresh), its lifecycle observer FLUSHES: ON_STOP — backgrounding,
-    // Recents swipe-away, incoming call, the preamble to an OOM kill —
-    // cancels the pending 800 ms debounce and persists immediately. A no-op
-    // when nothing is dirty. onCleared stays as the ViewModel-level second
-    // line of defence.
+    // Hardening #2 + §15 resync: the editor is the one screen where losing
+    // state actually costs writing, so unlike the list screens (whose
+    // observers only refresh), its lifecycle observer acts: ON_STOP —
+    // backgrounding, Recents swipe-away, incoming call, the preamble to an
+    // OOM kill — cancels the pending 800 ms debounce and persists immediately
+    // (a no-op when nothing is dirty), and ON_RESUME re-reads the mirror so a
+    // background sync pull that landed while the screen was away is adopted
+    // or merged instead of being overwritten by the next keystroke.
+    // onCleared stays as the ViewModel-level second line of defence.
     val lifecycleOwner = LocalLifecycleOwner.current
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
-            if (event == Lifecycle.Event.ON_STOP) vm.flushPendingSave()
+            when (event) {
+                Lifecycle.Event.ON_STOP -> vm.flushPendingSave()
+                Lifecycle.Event.ON_RESUME -> vm.resyncFromDisk()
+                else -> Unit
+            }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
@@ -146,15 +161,19 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
     var showLabelSheet by remember { mutableStateOf(false) }
     var confirmDelete by remember { mutableStateOf(false) }
 
-    // WS10 gallery insert: the system photo picker needs NO permission (§13
-    // reserves CAMERA + its prompt timing for a later capture flow). The
-    // picked image rides the editor's single save pipeline — see
-    // [EditorViewModel.insertImage]; camera capture is a documented follow-up.
+    // WS10 gallery insert + P2.12 camera capture. The system photo picker
+    // needs NO permission; CAMERA is requested ONLY when the user taps CAM —
+    // §13's first-capture timing — and a refusal costs nothing: one line of
+    // plain words, gallery still working, no repeated nagging. Either way the
+    // bytes ride the editor's single save pipeline (see
+    // [EditorViewModel.insertImage] / [EditorViewModel.insertCapturedPhoto]).
     // Title/body field state lives HERE (not inside the ready branch) so the
     // picker callback can read the cursor at launch time.
     val bodyFocus = remember { FocusRequester() }
     var titleValue by remember { mutableStateOf(TextFieldValue("")) }
     var bodyValue by remember { mutableStateOf(TextFieldValue("")) }
+
+    val context = LocalContext.current
 
     val pickImage = rememberLauncherForActivityResult(
         ActivityResultContracts.PickVisualMedia(),
@@ -162,6 +181,40 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
         if (uri != null) {
             vm.insertImage(uri, bodyValue.selection.min)
         }
+    }
+
+    // P2.12: TakePicture writes JPEG bytes into a FileProvider-owned cache
+    // file we hand the camera app by content URI (grantUriPermissions-scoped,
+    // app-private otherwise). On success those bytes enter
+    // [EditorViewModel.insertCapturedPhoto] — the same pipeline as the picker.
+    // rememberSaveable, not remember: the TakePicture result is redelivered
+    // after process death / recreation, and a plain remember would have
+    // dropped the captured photo on the floor with no words (Uri is
+    // Parcelable — the default saver carries it).
+    var pendingCaptureUri by rememberSaveable { mutableStateOf<Uri?>(null) }
+    val takePicture = rememberLauncherForActivityResult(
+        ActivityResultContracts.TakePicture(),
+    ) { captured ->
+        val target = pendingCaptureUri
+        pendingCaptureUri = null
+        if (captured && target != null) {
+            vm.insertCapturedPhoto(target, bodyValue.selection.min)
+        } else if (target != null) {
+            vm.discardCaptureUri(target)
+        }
+    }
+    val launchCapture = {
+        val dir = File(context.cacheDir, "camera").apply { mkdirs() }
+        val file = File(dir, "capture-${Ulid.generate()}.jpg")
+        val target = FileProvider.getUriForFile(context, "${context.packageName}.fileprovider", file)
+        pendingCaptureUri = target
+        takePicture.launch(target)
+        Unit
+    }
+    val requestCameraThenCapture = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { granted ->
+        if (granted) launchCapture() else vm.onCameraPermissionDenied()
     }
     state.insertion?.let { insertion ->
         LaunchedEffect(insertion) {
@@ -186,7 +239,15 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
         if (!state.ready) {
             // Bare ink while loading — never a spinner (R1's spirit applies here too).
         } else {
-            LaunchedEffect(Unit) {
+            // Field seeding keys on [UiState.generation], never `Unit`: the
+            // generation bumps only when the view model publishes new
+            // authoritative text (initial load, §15 adopt/merge), so ordinary
+            // recompositions never re-copy over typed bytes. A recreation
+            // (rotation / theme change — composition reborn, view model
+            // surviving) re-runs this fresh and seeds from the CURRENT buffer,
+            // not first-load text; BasicTextField's programmatic set fires no
+            // onValueChange, which is exactly why the key must be right.
+            LaunchedEffect(state.generation) {
                 titleValue = TextFieldValue(state.initialTitle, TextRange(state.initialTitle.length))
                 bodyValue = TextFieldValue(state.initialBody, TextRange(state.initialBody.length))
                 runCatching { bodyFocus.requestFocus() } // keyboard up before transition ends
@@ -226,6 +287,19 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
                 )
             }
 
+            // P2.12/§13: a refused camera prompt speaks once, in one line,
+            // and changes nothing else — the editor stays fully usable.
+            state.cameraWords?.let { words ->
+                Text(
+                    words,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(Tokens.InkRaised)
+                        .padding(horizontal = 16.dp, vertical = 6.dp),
+                    style = TextStyle(fontFamily = JetBrainsMono, fontSize = 12.sp, color = Tokens.Warn),
+                )
+            }
+
             BodyField(
                 bodyValue = bodyValue,
                 onBodyChange = {
@@ -247,6 +321,17 @@ fun EditorScreen(noteId: String, onClose: () -> Unit) {
                 archived = state.archived,
                 onArchiveClick = { vm.setArchived(!state.archived) }, // M6: real verb via the save pipeline
                 onAttachClick = { pickImage.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+                onCaptureClick = {
+                    // §13: the CAMERA prompt fires here and only here — at
+                    // the user's first capture attempt, never at launch. A
+                    // fresh attempt clears last time's refusal words.
+                    vm.clearCameraWords()
+                    val granted = ContextCompat.checkSelfPermission(
+                        context,
+                        Manifest.permission.CAMERA,
+                    ) == PackageManager.PERMISSION_GRANTED
+                    if (granted) launchCapture() else requestCameraThenCapture.launch(Manifest.permission.CAMERA)
+                },
                 onDeleteRequest = { confirmDelete = true },
             )
         }
@@ -414,12 +499,13 @@ private fun checkboxHits(text: String, layout: TextLayoutResult): List<CheckboxH
 // ---- Bottom bar ----------------------------------------------------------------
 
 /**
- * Label / colour / archive / attach / overflow. COLOUR, LABEL, ARCHIVE and —
- * since WS10 — ATT all work through the editor's single save pipeline;
- * DELETE lives in the overflow menu behind a confirm dialog. ATT opens the
- * system photo picker (gallery insert; no permission needed). CAMERA capture
- * stays a v1 follow-up: TakePicture requires a CAMERA-permission prompt whose
- * first-use timing §13 reserves for that flow.
+ * Label / colour / archive / attach / capture / overflow. COLOUR, LABEL,
+ * ARCHIVE and — since WS10 — ATT all work through the editor's single save
+ * pipeline; DELETE lives in the overflow menu behind a confirm dialog. ATT
+ * opens the system photo picker (gallery insert; no permission needed). CAM
+ * (P2.12) captures through TakePicture into the same pipeline: §13 times its
+ * CAMERA prompt to this tap, and a refusal leaves one line of words with the
+ * rest of the editor untouched.
  */
 @Composable
 private fun EditorBottomBar(
@@ -428,6 +514,7 @@ private fun EditorBottomBar(
     archived: Boolean,
     onArchiveClick: () -> Unit,
     onAttachClick: () -> Unit,
+    onCaptureClick: () -> Unit,
     onDeleteRequest: () -> Unit,
 ) {
     var overflowOpen by remember { mutableStateOf(false) }
@@ -474,6 +561,20 @@ private fun EditorBottomBar(
             Text(
                 "ATT",
                 modifier = Modifier.semantics { contentDescription = "Insert image" },
+                style = TextStyle(
+                    fontFamily = JetBrainsMono,
+                    fontSize = 11.sp,
+                    letterSpacing = 0.08.em,
+                    color = Tokens.White90,
+                ),
+                maxLines = 1,
+                overflow = TextOverflow.Clip,
+            )
+        }
+        IconButton(onClick = onCaptureClick) {
+            Text(
+                "CAM",
+                modifier = Modifier.semantics { contentDescription = "Take photo" },
                 style = TextStyle(
                     fontFamily = JetBrainsMono,
                     fontSize = 11.sp,

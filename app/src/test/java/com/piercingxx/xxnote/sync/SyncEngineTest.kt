@@ -34,7 +34,8 @@ class SyncEngineTest {
         local: InMemoryLocal,
         remote: InMemoryRemote,
         book: InMemoryBook,
-    ): SyncEngine = SyncEngine(local, remote, book, DEVICE, clock = { CLOCK })
+        etagMode: EtagMode = EtagMode.ETAG,
+    ): SyncEngine = SyncEngine(local, remote, book, DEVICE, clock = { CLOCK }, etagMode = etagMode)
 
     /** Seeds one fully-agreed note: mirror == remote == base, ETags consistent. */
     private fun seedAgreed(
@@ -212,6 +213,182 @@ class SyncEngineTest {
         // next sync converges via an If-Match-guarded push instead of re-forking forever.
         assertEquals(originalRemoteText, book.baseOf(ID_A)?.body)
     }
+
+    // ---- §4.2 lock law (bug 4): no base without a strong ETag writes blind ----
+
+    @Test
+    fun push_with_null_etag_base_is_refused_and_nothing_reaches_the_wire() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = "$ID_A-alpha.md"
+        val baseText = note(ID_A, "Alpha", "last synced\n")
+        val localEdit = note(ID_A, "Alpha", "written on the train\n")
+        local.add(ID_A, pathA, localEdit)
+        remote.seed(pathA, baseText, "\"r1\"")
+        // The snapshot exists but locks nothing: the server gave no ETag.
+        book.recordBase(ID_A, baseText, etag = null)
+
+        val outcome = newEngine(local, remote, book).syncOnce()
+
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 0, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 0,
+            ),
+            outcome,
+        )
+        // The refusal is the point: NO write request of any kind hit the fake remote.
+        assertTrue(remote.requests.isEmpty(), "an unconditional PUT escaped: ${remote.requests}")
+        assertEquals(baseText, remote.text(pathA), "remote bytes changed by a refused push")
+        assertEquals(localEdit, local.read(ID_A)!!.wholeFileText, "local edit lost by a refused push")
+        assertNull(book.baseOf(ID_A)?.etag)
+        assertEquals(baseText, book.baseOf(ID_A)?.body)
+        // Surfaced in plain words on the sync screen's log (R10).
+        val refusal = book.logs.single { !it.ok }
+        assertTrue(refusal.reason.contains("refused"))
+        assertTrue(refusal.reason.contains("ETag"))
+    }
+
+    @Test
+    fun push_with_weak_etag_base_is_refused_in_etag_mode() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = "$ID_A-alpha.md"
+        val baseText = note(ID_A, "Alpha", "last synced\n")
+        local.add(ID_A, pathA, note(ID_A, "Alpha", "edited locally\n"))
+        remote.seed(pathA, baseText, "W/\"weak-1\"")
+        book.recordBase(ID_A, baseText, etag = "W/\"weak-1\"")
+
+        val outcome = newEngine(local, remote, book).syncOnce()
+
+        assertEquals(0, outcome.completedPushed())
+        assertTrue(remote.requests.isEmpty(), "a weak-If-Match PUT escaped: ${remote.requests}")
+        assertTrue(
+            book.logs.any { !it.ok && it.reason.contains("weak") },
+            "the refusal must name weakness in plain words",
+        )
+        assertEquals(baseText, remote.text(pathA))
+    }
+
+    @Test
+    fun fallback_mode_remote_unchanged_since_base_push_proceeds() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = "$ID_A-alpha.md"
+        val baseText = note(ID_A, "Alpha", "alpha\nbeta\ngamma\n")
+        val localEdit = note(ID_A, "Alpha", "alpha local\nbeta\ngamma\n")
+        local.add(ID_A, pathA, localEdit)
+        // Server has no usable ETags (FALLBACK mode); bytes still match the base.
+        remote.seed(pathA, baseText, "\"r1\"")
+        book.recordBase(ID_A, baseText, etag = null)
+
+        val outcome = newEngine(local, remote, book, EtagMode.FALLBACK).syncOnce()
+
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 1, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 0,
+            ),
+            outcome,
+        )
+        assertEquals(localEdit, remote.text(pathA))
+        // The verify GET ran right before the PUT, on top of the plan-time GET.
+        assertEquals(2, remote.getCallCount(pathA))
+        // A null recorded etag is stripped, never sent as a bogus conditional;
+        // a weak one would be too. The decision signal was the body hash.
+        val put = remote.puts.single { it.path == pathA }
+        assertNull(put.ifMatch)
+        assertIs<PutResult.WRITTEN>(put.result)
+        assertEquals(localEdit, book.baseOf(ID_A)?.body)
+        assertEquals("\"e1\"", book.baseOf(ID_A)?.etag)
+    }
+
+    @Test
+    fun fallback_mode_remote_moved_since_base_forks_and_never_overwrites() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = "$ID_A-alpha.md"
+        val baseText = note(ID_A, "Alpha", "alpha\nbeta\ngamma\n")
+        val localEdit = note(ID_A, "Alpha", "alpha local\nbeta\ngamma\n")
+        val remoteEdit = note(ID_A, "Alpha", "alpha\nbeta\ngamma remote\n")
+        local.add(ID_A, pathA, localEdit)
+        remote.seed(pathA, remoteEdit, "\"r2\"")
+        book.recordBase(ID_A, baseText, etag = null)
+
+        val outcome = newEngine(local, remote, book, EtagMode.FALLBACK).syncOnce()
+
+        // The body-hash detector caught the divergence and row 12 took over:
+        // bounded re-plans, then a fork — both sides stay readable.
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 0, merged = 0,
+                forked = 1, trashed = 0, resurrected = 0, nothing = 0,
+            ),
+            outcome,
+        )
+        // Not one byte of the concurrent remote edit was overwritten — and
+        // not one PUT was even attempted: the detector refuses the write
+        // BEFORE the wire, so row 12 re-plans from evidence, never a request.
+        assertEquals(remoteEdit, remote.text(pathA))
+        assertTrue(
+            remote.puts.none { it.path == pathA },
+            "an overwrite attempt reached the wire: ${remote.puts}",
+        )
+        // Both texts exist after the pass: the mirror keeps local under the
+        // original id, the fork carries the remote side (§7 side-carry ruling).
+        assertEquals(localEdit, local.listLive().first { it.id == ID_A }.wholeFileText)
+        val forkNote = local.listLive().first { it.id != ID_A }
+        val forkDoc = Frontmatter.parse(forkNote.wholeFileText)
+        assertEquals(ID_A, forkDoc.conflictOf)
+        assertEquals(Frontmatter.parse(remoteEdit).bodyText, forkDoc.bodyText)
+        // Termination ruling: the original converges next pass against the
+        // fresh state — now even carrying the listing's strong ETag.
+        assertEquals(remoteEdit, book.baseOf(ID_A)?.body)
+        assertEquals("\"r2\"", book.baseOf(ID_A)?.etag)
+    }
+
+    @Test
+    fun key_etag_mode_switches_engine_behavior() {
+        val baseText = note(ID_A, "Alpha", "last synced\n")
+        val localEdit = note(ID_A, "Alpha", "edited locally\n")
+
+        fun world(): Triple<InMemoryLocal, InMemoryRemote, InMemoryBook> {
+            val local = InMemoryLocal()
+            val remote = InMemoryRemote()
+            val book = InMemoryBook()
+            val pathA = "$ID_A-alpha.md"
+            local.add(ID_A, pathA, localEdit)
+            remote.seed(pathA, baseText, "\"r1\"")
+            book.recordBase(ID_A, baseText, etag = null)
+            return Triple(local, remote, book)
+        }
+
+        // What SetupLogic stores under KEY_ETAG_MODE is what SyncGraph feeds
+        // the engine; the same world must refuse under "etag" and push under
+        // "fallback" — the stored string IS the behavior switch.
+        val (localE, remoteE, bookE) = world()
+        newEngine(localE, remoteE, bookE, EtagMode.fromStored("etag")).syncOnce()
+        assertTrue(remoteE.requests.isEmpty(), "etag mode must refuse a lock-less base")
+        assertEquals(baseText, remoteE.text("$ID_A-alpha.md"))
+
+        val (localF, remoteF, bookF) = world()
+        val outcome = newEngine(localF, remoteF, bookF, EtagMode.fromStored("fallback")).syncOnce()
+        assertEquals(1, outcome.completedPushed())
+        assertEquals(localEdit, remoteF.text("$ID_A-alpha.md"))
+
+        // Absent or unknown rows fall to FALLBACK — the mode that cannot
+        // blind-write (pre-mode installs get the safe direction).
+        assertEquals(EtagMode.FALLBACK, EtagMode.fromStored(null))
+        assertEquals(EtagMode.FALLBACK, EtagMode.fromStored("garbage"))
+    }
+
+    /** Small convenience for asserting "no push landed" on the Completed tally. */
+    private fun SyncEngine.SyncOutcome.completedPushed(): Int =
+        (this as? SyncEngine.SyncOutcome.Completed)?.pushed ?: -1
 
     @Test
     fun push_records_response_etag() {
@@ -642,5 +819,151 @@ class SyncEngineTest {
             assertEquals(expected, noteNow.wholeFileText, "bytes differ for $id after resync")
             assertNotNull(book.baseOf(id), "base not rebuilt for $id")
         }
+    }
+
+    // ---- P2.10 GET economy: the ETAG-mode short-circuit -----------------------
+
+    @Test
+    fun etag_match_with_clean_local_skips_the_get_entirely() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+
+        val outcome = newEngine(local, remote, book).syncOnce()
+
+        // The unchanged note is decided WITHOUT a single GET: the listing's
+        // ETag equals the base's recorded one and the mirror is clean.
+        assertEquals(0, remote.getCallCount(pathA))
+        assertTrue(remote.getCalls.isEmpty())
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 0, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 1,
+            ),
+            outcome,
+        )
+        // Nothing moved anywhere — the skip fabricated no writes.
+        assertEquals(note(ID_A, "Alpha", "agreed bytes\n"), remote.text(pathA))
+        assertEquals(
+            note(ID_A, "Alpha", "agreed bytes\n"),
+            book.baseOf(ID_A)?.body,
+        )
+    }
+
+    @Test
+    fun dirty_local_never_skips_the_get_and_still_pushes() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+        local.add(ID_A, pathA, note(ID_A, "Alpha", "edited locally\n"))
+
+        val outcome = newEngine(local, remote, book).syncOnce()
+
+        // The push plan needs real remote state — the GET happens, and the
+        // edit lands under If-Match exactly as before the short-circuit.
+        assertEquals(1, remote.getCallCount(pathA))
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 1, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 0,
+            ),
+            outcome,
+        )
+        assertEquals(note(ID_A, "Alpha", "edited locally\n"), remote.text(pathA))
+        val put = remote.puts.single { it.path == pathA }
+        assertEquals("\"r-${ID_A.takeLast(4)}\"", put.ifMatch)
+    }
+
+    @Test
+    fun null_base_etag_never_skips_the_get() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+        book.recordBase(ID_A, note(ID_A, "Alpha", "agreed bytes\n"), etag = null)
+
+        newEngine(local, remote, book).syncOnce()
+
+        assertEquals(1, remote.getCallCount(pathA))
+    }
+
+    @Test
+    fun weak_base_etag_never_skips_the_get() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+        val text = note(ID_A, "Alpha", "agreed bytes\n")
+        remote.seed(pathA, text, "W/\"weak\"")
+        book.recordBase(ID_A, text, "W/\"weak\"")
+
+        newEngine(local, remote, book).syncOnce()
+
+        // A weak validator proves nothing byte-wise (RFC 7232): the GET
+        // decides, never the tag match.
+        assertEquals(1, remote.getCallCount(pathA))
+    }
+
+    @Test
+    fun fallback_mode_has_no_short_circuit_the_get_is_mandatory() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+
+        val outcome = newEngine(local, remote, book, etagMode = EtagMode.FALLBACK).syncOnce()
+
+        // ETags are unusable in FALLBACK by definition: the deciding GET is
+        // the honest cost of the weaker mode (§4.2), paid every pass.
+        assertEquals(1, remote.getCallCount(pathA))
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 0, pushed = 0, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 1,
+            ),
+            outcome,
+        )
+    }
+
+    @Test
+    fun a_pending_outbox_op_blocks_the_short_circuit_for_its_note() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+        // An owed attachment upload (§10 deferral marker) for an otherwise
+        // byte-clean note: skipping would starve the retry loop.
+        book.enqueueOp(ID_A, SyncEngine.OP_ATTACH, "0123456789abcdef0123456789abcdef")
+
+        newEngine(local, remote, book).syncOnce()
+
+        assertEquals(1, remote.getCallCount(pathA))
+    }
+
+    @Test
+    fun untracked_remote_files_still_get_fetched_and_id_parsed() {
+        val local = InMemoryLocal()
+        val remote = InMemoryRemote()
+        val book = InMemoryBook()
+        val pathA = seedAgreed(ID_A, "Alpha", "agreed bytes\n", local, remote, book)
+        // A second, never-synced remote file: no mirror path, no base.
+        val foreignPath = "$ID_B-bravo.md"
+        remote.seed(foreignPath, note(ID_B, "Bravo", "fresh on the server\n"), "\"r-B\"")
+
+        val outcome = newEngine(local, remote, book).syncOnce()
+
+        // Mixed vault: the agreed note skips; the foreign file is GET-ed and
+        // id-parsed as always → row 1 pull.
+        assertEquals(0, remote.getCallCount(pathA))
+        assertEquals(1, remote.getCallCount(foreignPath))
+        assertEquals(
+            SyncEngine.SyncOutcome.Completed(
+                pulled = 1, pushed = 0, merged = 0,
+                forked = 0, trashed = 0, resurrected = 0, nothing = 1,
+            ),
+            outcome,
+        )
     }
 }

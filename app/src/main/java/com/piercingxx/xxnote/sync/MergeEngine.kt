@@ -54,19 +54,28 @@ object MergeEngine {
         }
         val created = scalarMerged(base.created, local.created, remote.created)
 
-        val body = if (
+        val body = when {
             base.type == NoteType.CHECKLIST &&
-            local.type == NoteType.CHECKLIST &&
-            remote.type == NoteType.CHECKLIST
-        ) {
-            when (val result = ChecklistMerge.merge(base.bodyText, local.bodyText, remote.bodyText)) {
-                is ChecklistMergeResult.Merged -> result.body
-                ChecklistMergeResult.Fork -> return MergeOutcome.Fork("checklist conflict")
+                local.type == NoteType.CHECKLIST &&
+                remote.type == NoteType.CHECKLIST -> {
+                when (val result = ChecklistMerge.merge(base.bodyText, local.bodyText, remote.bodyText)) {
+                    is ChecklistMergeResult.Merged -> result.body
+                    ChecklistMergeResult.Fork -> return MergeOutcome.Fork("checklist conflict")
+                }
             }
-        } else {
-            when (val result = Diff3.merge(base.bodyText.lines(), local.bodyText.lines(), remote.bodyText.lines())) {
-                is Diff3Result.Merged -> result.lines.joinToString("\n")
-                is Diff3Result.Conflicted -> return MergeOutcome.Fork("prose conflict")
+            // D18/D19: a checklist body NEVER merges by lines. A type
+            // transition across sides (e.g. base NOTE, both later CHECKLIST)
+            // has no item-wise reading either — fork visibly rather than
+            // guess through Diff3.
+            base.type == NoteType.CHECKLIST ||
+                local.type == NoteType.CHECKLIST ||
+                remote.type == NoteType.CHECKLIST ->
+                return MergeOutcome.Fork("checklist type transition")
+            else -> {
+                when (val result = Diff3.merge(base.bodyText.lines(), local.bodyText.lines(), remote.bodyText.lines())) {
+                    is Diff3Result.Merged -> result.lines.joinToString("\n")
+                    is Diff3Result.Conflicted -> return MergeOutcome.Fork("prose conflict")
+                }
             }
         }
 

@@ -1,10 +1,13 @@
 package com.piercingxx.xxnote.ui.setup
 
+import com.piercingxx.xxnote.core.Etag
 import com.piercingxx.xxnote.core.Frontmatter
+import com.piercingxx.xxnote.core.Ulid
 import com.piercingxx.xxnote.net.HttpError
 import com.piercingxx.xxnote.net.WebDavClient
 import com.piercingxx.xxnote.sync.RemoteEntry
 import com.piercingxx.xxnote.sync.RemoteFiles
+import com.piercingxx.xxnote.sync.SyncEngine
 import java.io.IOException
 import javax.net.ssl.SSLException
 
@@ -21,8 +24,11 @@ import javax.net.ssl.SSLException
  *   assigns ids on first read. Files with a present-but-malformed id are
  *   NOT counted id-less (the scan keeps such ids); SyncEngine flags them
  *   separately.
- * - ETag mode is `"etag"` only when a non-empty listing shows getetag on
- *   EVERY entry; any hole or an empty folder falls back conservatively
+ * - ETag mode is `"etag"` only when a NON-empty listing shows a STRONG
+ *   getetag on EVERY entry (RFC 7232: a `W/` weak tag can never guard an
+ *   `If-Match`, so it counts as unusable — honoring one would 412 every
+ *   write into a fork storm). An EMPTY folder observed nothing unusable and
+ *   therefore selects `"etag"`; any hole or weakness falls back conservatively
  *   (§15: the fallback guarantee is weaker and must not be assumed strong).
  */
 object SetupLogic {
@@ -227,9 +233,42 @@ object SetupLogic {
             entry.fileName.endsWith(".md") && !entry.fileName.startsWith(".")
         }
 
-    /** VaultStore scan rule: no frontmatter `id:` line at all, or a blank one. */
+    /**
+     * P2.10 subfolder detection: true when the listing holds a collection
+     * sync will never walk. Dot-collections (`.xxnote`'s trash namespace)
+     * and the §10 attachments dir are known non-note dirs, not disclosures;
+     * the vault root answering its own PROPFIND is already excluded by
+     * [com.piercingxx.xxnote.net.WebDavClient]. Nested vaults are out of
+     * scope by design — flat-root engine.
+     */
+    fun hasUnsyncedSubfolders(entries: List<RemoteEntry>): Boolean =
+        entries.any { entry ->
+            entry.collection &&
+                !entry.fileName.startsWith(".") &&
+                entry.fileName != SyncEngine.ATTACHMENTS_DIR.trimEnd('/')
+        }
+
+    /**
+     * The one-line plain words for [hasUnsyncedSubfolders], or null when
+     * there is nothing to disclose. Files inside server-side subfolders stay
+     * on the server — said once at confirm instead of discovered never.
+     */
+    fun subfolderLine(hasSubfolders: Boolean): String? =
+        if (hasSubfolders) {
+            "this folder has subfolders — files inside them stay on the server"
+        } else {
+            null
+        }
+
+    /**
+     * Import-scan rule: no USABLE id — the line is absent, blank, or not a
+     * canonical ULID. Deliberately the SAME predicate [com.piercingxx.xxnote.sync.ImportPass]
+     * stamps by, so the confirm step's count is exactly the set import will
+     * rewrite (a present-but-invalid id would never sync — the engine only
+     * matches canonical ULIDs — and is disclosed as receiving one).
+     */
     fun isIdLess(wholeFileText: String): Boolean =
-        Frontmatter.parse(wholeFileText).id?.takeIf { it.isNotBlank() } == null
+        Frontmatter.parse(wholeFileText).id?.takeIf(Ulid::isValid) == null
 
     /**
      * The §12 disclosure, EXACTLY as specified, byte for byte. Zero files is
@@ -266,21 +305,53 @@ object SetupLogic {
             found = mdEntries.size,
             idLess = idLess,
             etagMode = etagModeOf(entries),
+            weakEtags = mdEntries.any { Etag.isWeak(it.etag) },
+            hasSubfolders = hasUnsyncedSubfolders(entries),
         )
     }
 
-    data class ConfirmScan(val found: Int, val idLess: Int, val etagMode: String)
+    data class ConfirmScan(
+        val found: Int,
+        val idLess: Int,
+        val etagMode: String,
+        /**
+         * True when any visible `.md` answered with a WEAK ETag (`W/`): the
+         * confirm step must say so in plain words now instead of letting the
+         * weakness fork-storm later (weak tags cannot lock writes, so sync
+         * runs the §4.2 fallback).
+         */
+        val weakEtags: Boolean,
+        /** P2.10: the vault root has subcollections sync will never walk. */
+        val hasSubfolders: Boolean = false,
+    )
 
-    /** §4.2 detection: getetag must be present on EVERY listed entry. */
+    /**
+     * §4.2 detection: getetag must be present and STRONG on every listed
+     * FILE entry. An empty listing observes nothing unusable and selects ETAG
+     * mode — absence of evidence is not evidence of a weak server.
+     * Subcollections carry no validator by their nature; they are not
+     * evidence about the server either way (P2.10), so only files decide.
+     */
     fun etagModeOf(entries: List<RemoteEntry>): String =
-        if (entries.isNotEmpty() && entries.all { it.etag != null }) ETAG_MODE_ETAG else ETAG_MODE_FALLBACK
+        if (entries.filterNot { it.collection }.all { Etag.isStrong(it.etag) }) {
+            ETAG_MODE_ETAG
+        } else {
+            ETAG_MODE_FALLBACK
+        }
 
-    /** The confirmation sentence stating which guarantee first sync will run under (§15). */
-    fun etagLine(mode: String): String =
+    /**
+     * The confirmation sentence stating which guarantee first sync will run
+     * under (§15). [weakEtags] names weakness as the reason for the fallback
+     * when the listing showed `W/` tags — those can't lock writes.
+     */
+    fun etagLine(mode: String, weakEtags: Boolean = false): String =
         if (mode == ETAG_MODE_ETAG) {
             "this server returns ETags on every file — sync can lock writes properly"
+        } else if (weakEtags) {
+            "some files answer with weak ETags (a W/ prefix) — weak tags can't lock writes, " +
+                "so sync checks each file's contents right before writing; weaker protection, known and stated (§4.2)"
         } else {
-            "this server does not return usable ETags — sync falls back to size+mtime+hash; weaker protection, known and stated (§4.2)"
+            "this server does not return usable ETags — sync checks each file's contents against its last-synced copy right before writing, so a concurrent edit is forked, never overwritten; weaker protection, known and stated (§4.2)"
         }
 
     // ---- step 6: device name ------------------------------------------------------------
