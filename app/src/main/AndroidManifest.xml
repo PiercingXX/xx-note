@@ -9,6 +9,13 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
+    <!-- Family theme-sync. XX-Launcher sendBroadcast()s with this signature
+         permission; uses-permission is required to receive it. -->
+    <permission
+        android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"
+        android:protectionLevel="signature"/>
+    <uses-permission android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"/>
+
     <!-- androidx.work merges infrastructure permissions into every consumer.
          FOREGROUND_SERVICE is genuinely unused here: expedited syncs fall back
          to regular work (RUN_AS_NON_EXPEDITED_WORK_REQUEST), never a foreground
@@ -69,7 +76,8 @@
              The receiver persists the preset and restyles a running UI. -->
         <receiver
             android:name=".ui.theme.ThemeSyncReceiver"
-            android:exported="true">
+            android:exported="true"
+            android:permission="com.piercingxx.xxlauncher.permission.THEME_SYNC">
             <intent-filter>
                 <action android:name="xx.launcher.THEME_CHANGED"/>
             </intent-filter>
