@@ -5,6 +5,20 @@
         <item name="android:windowBackground">@color/pxx_ink</item>
         <item name="android:statusBarColor">@color/pxx_ink</item>
         <item name="android:navigationBarColor">@color/pxx_ink</item>
+
+        <!-- The starting window the platform draws before the first activity
+             exists. It cannot be refused, only emptied: left at its defaults it
+             stamps the launcher icon over a ground derived from this theme, so
+             a cold start opened on a logo card instead of on the note. Ink
+             ground and a transparent icon make it indistinguishable from the
+             window that follows. The icon-background and branding slots are the
+             platform's other two chances to draw a mark, so they are pinned
+             shut here rather than left to whatever a parent theme supplies.
+             minSdk is 31, so these need no -v31 variant. -->
+        <item name="android:windowSplashScreenBackground">@color/pxx_ink</item>
+        <item name="android:windowSplashScreenAnimatedIcon">@android:color/transparent</item>
+        <item name="android:windowSplashScreenIconBackgroundColor">@android:color/transparent</item>
+        <item name="android:windowSplashScreenBrandingImage">@null</item>
     </style>
 
 </resources>
