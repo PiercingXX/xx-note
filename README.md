@@ -2,160 +2,88 @@
 
 > Delete this app and lose nothing — the notes were plain Markdown the whole time.
 
-Google Keep's front end — card grid, one-tap capture, checklists, labels,
-pin, archive, search — over a folder of `.md` files on hardware you own.
-Every note is one plain file with YAML frontmatter. Open the vault in
-Obsidian, in `vim`, in Notepad, in ten years.
+Google Keep's front end — card grid, one-tap capture, checklists, labels, pin,
+archive, search — over a folder of `.md` files on hardware you own. Every note
+is one plain file with YAML frontmatter, so the vault opens in Obsidian, in
+`vim`, in Notepad, in ten years.
 
 <img src="docs/images/screenshot.png" width="270" alt="XX-Note on a Pixel 6, AMOLED Night">
 
 
-**Spec:** [design.md](design.md) — the full design.
-**Build plan:** [todo.md](todo.md) — workstreams, gates, and the order to do them in.
-**Hardening:** [todo-hardening.md](todo-hardening.md) — the gap list between "tests are green" and "trust it with the only copy of your writing."
-**Screens:** [design/xx-note-screens.html](design/xx-note-screens.html) — the mockup.
-**Research:** [design/research.md](design/research.md) — sourced findings behind this spec.
-**Backend:** [server/README.md](server/README.md) — the fabric server half.
-
----
-
-## Status 🧪
-
-WS0–WS10 and the hardening pass are implemented.
-
-| Check | Command | Result |
-|---|---|---|
-| Unit tests | `./gradlew testDebugUnitTest :core:test` | **623 green, 0 failures**, 1 skipped (`HeicTranscodeRoboTest`, deliberate) — app 492, core 131 |
-| Release build | `./gradlew :app:assembleRelease` | 3.8 MB unsigned APK, R8 minification on. No signing keys yet |
-| Server | `cd server && go test ./...` | 19 tests green, stdlib only |
-
-Built against SDK 35, `minSdk 31`. The test device is a Pixel 6 (`oriole`)
-running GrapheneOS on Android 17.
-
-### What is actually proven on the phone
-
-The app installs, launches, and draws its setup screen without crashing. That
-is the entire list. Sync has never run against a real server from this device:
-the on-device database holds no notes, and the only thing in `shared_prefs` is
-the synced theme — no credentials are stored, because none have been entered.
-Everything under "The sync rule" below is proven by tests on a JVM, not by a
-round trip to a NAS. Treat the server-backed half as unverified until it is
-verified.
-
-## What a note is
+## A note, whole
 
 ```markdown
 ---
 id: 01J9F2K3M4N5P6Q7R8S9T0V1W2
 title: Grocery list
-created: 2026-08-23T10:04:12Z
-updated: 2026-08-23T10:07:55Z
 pinned: true
 labels: [home, errands]
 type: checklist
 ---
 
 - [ ] oat milk
-- [ ] coffee, the dark one
 - [x] bin bags
 ```
 
-That is the whole storage format. The filename is `<ulid>-<slug>.md` and is
-cosmetic — identity is the `id`, so a note renamed in Obsidian is still the
-same note. Attachments sit in `attachments/` under their own content hash
-and are referenced by ordinary relative Markdown links.
+That is the entire storage format. The filename is cosmetic; `id:` is the
+identity, so a note renamed in Obsidian is still the same note. Attachments sit
+in `attachments/` under a content hash, as relative Markdown links.
 
-## The sync rule
+## Sync ⚙️
 
-Sync is a truth table over three snapshots — what the server had at the last
-agreement, what the phone has now, what the server has now — evaluated by a
-pure function with no Android dependencies. First match wins.
+Three-way merge against a stored base snapshot. Deletes become trash, conflicts
+become two visible notes, and there is no timestamp resolution anywhere — not as
+a fallback, not as a setting — because "newest wins" is how sync engines lose an
+afternoon of writing without telling anyone. One invariant, tested as a property
+over every row of the table in [design.md §6](design.md): no sync outcome
+reduces the bytes you can still read.
 
-| Local | Remote | What happens |
-|---|---|---|
-| clean | clean | nothing |
-| edited | clean | push |
-| clean | edited | pull |
-| edited | edited | three-way merge; unmergeable → **two visible notes** |
-| trashed | edited | the edit wins, the note comes back |
-| edited | deleted | the edit wins, the note comes back |
-| deleted | clean | moved to trash, never unlinked |
+Transport is WebDAV to a Synology over Tailscale, behind a `RemoteFiles` port.
+[`server/`](server/README.md) holds `xxnote-server`, a static Go binary serving
+the same vault over estate fabric tokens. It mirrors the port 1:1, unwired.
 
-One invariant governs all of it, and it is tested as a property over every
-row: **no sync outcome reduces the bytes you can still read.** Deletes
-become trash. Conflicts become two notes named the way Synology Drive names
-its own. There is no timestamp-based resolution anywhere in the app — not as
-a fallback, not as a setting — because "newest wins" is how sync engines
-lose an afternoon of writing without telling anyone.
+## The network permission
 
-## Where the notes live ⚙️
+The rest of the family declares no `INTERNET`. XX-Note cannot — reaching your
+own server requires it, and pretending otherwise would be the first dishonest
+thing in this repo. The honest version: one host, no third party.
+`OneHostInterceptor` throws before a socket opens for anything but the
+configured origin, cleartext is forbidden everywhere, and CI fails the build on
+permission drift. Revoke Network on GrapheneOS and you still have a working
+local notes app that says so.
 
-Two backends, one `RemoteFiles` port.
+## Build
 
-- **Today, in the app:** WebDAV to the Synology over Tailscale. This is what
-  `SetupScreen` asks you for and what ships in the APK.
-- **In this repo, not yet wired:** [`server/`](server/README.md) —
-  `xxnote-server`, a single static Go binary (stdlib only, zero modules) that
-  serves each estate user's notes as plain `.md` files under
-  `<data>/users/<user_id>/vault/`, authenticated with estate fabric bearer
-  tokens instead of NAS credentials. Its API mirrors the `RemoteFiles` port
-  1:1, so adopting it is one new port implementation on the client. Its tests
-  include a two-user isolation matrix that was verified to go red when the
-  path choke point is disabled.
+```bash
+export ANDROID_HOME=$HOME/Android/Sdk
+export JAVA_HOME=$HOME/tools/jdk-21.0.12.1+1
+./gradlew testDebugUnitTest :core:test   # 623 green, 1 deliberate skip
+./gradlew :app:assembleRelease           # 3.8 MB, R8 on, unsigned
+cd server && go test ./...               # 19 green, stdlib only
+```
 
-Either way the storage philosophy holds: a folder of `.md` files an operator
-can `cat`. Only the transport and the auth change.
+SDK 35, `minSdk 31`. Test device is a Pixel 6 on GrapheneOS.
 
-## About the network permission
+## Status 🧪
 
-The rest of the family makes a hard claim: no `INTERNET` permission, and you
-can check the manifest yourself. **XX-Note cannot make that claim** — talking
-to your own server requires the permission, and pretending otherwise would be
-the first dishonest thing in this repo.
+**It installs, launches, and draws its setup screen. That is the entire list of
+what is proven on a phone.** Sync has never run against a real server from a
+device: no notes in the database, no credentials ever entered. Everything above
+is proven by tests on a JVM, not by a round trip to a NAS. Treat the
+server-backed half as unverified.
 
-The honest version: one host, no third party. The app reaches exactly one
-origin — your server at its Tailscale address. `OneHostInterceptor` pins
-every request to the configured `scheme://host:port` with redirects disabled
-and throws before a socket opens for anything else; the network security
-config forbids cleartext everywhere and anchors TLS to the system store only
-(no pinning, no user CAs, and deliberately no `<domain-config>` — the host is
-chosen at runtime, so an entry there could never match). CI runs
-`scripts/check-permissions.sh` against the merged manifest and
-`scripts/check-deps.sh` against the release dependency set, and fails the
-build on any drift. No analytics, no crash reporting, no ads, no Play
-Services, no Firebase. On GrapheneOS the Network permission is visible and
-revocable, and revoking it leaves you a fully working local notes app that
-says so.
-
-## Theme sync 🎨
-
-XX-Launcher broadcasts `xx.launcher.THEME_CHANGED` with a theme name and a
-resolved background ARGB; XX-Note's exported receiver persists the choice and
-repaints. Eight presets: AMOLED Night, Graphite, Forest Night, Ocean Drift,
-Burgundy, Paper, Mist, Custom. Contrast is derived from the background, so
-the light grounds get dark text without a second broadcast. Verified live on
-the Pixel 6 — repainted to Graphite (`#131316`) and back. The nine family
-apps all speak this contract; set the theme once in the launcher and the
-estate follows.
-
-## What is not in v1
-
-Reminders, the home-screen widget, the quick-settings tile, and
-share-to-note are deferred with intent — the frontmatter reserves
-`reminder:` so today's vaults stay forward-compatible. Collaboration,
-drawings, rich text beyond Markdown, cloud accounts of any kind, and
-end-to-end encryption of the vault are permanent non-goals, with reasons, in
+Reminders, widget, tile and share-to-note are v2, with `reminder:` reserved in
+frontmatter so today's vaults stay compatible. Collaboration, drawings, rich
+text and cloud accounts are permanent non-goals, with reasons, in
 [design.md §2](design.md).
 
-## Family
+## More
 
-Brand, tokens, and type come from
-[piercingxx-branding](https://github.com/PiercingXX/piercingxx-branding).
-AMOLED black, Signal white, Space Mono / JetBrains Mono. Same stack and
-conventions as [XX-Dialer](https://github.com/PiercingXX/xx-dialer),
-[Nope-Mode](https://github.com/PiercingXX/Nope-Mode), and the Launcher —
-Compose here rather than Views, by the XX-Vitals precedent, because a live
-Markdown editor is the case that argues for it.
+[design.md](design.md) is the spec, [todo.md](todo.md) the build plan,
+[todo-hardening.md](todo-hardening.md) the gap between "tests are green" and
+"trust it with the only copy of your writing". Brand from
+[piercingxx-branding](https://github.com/PiercingXX/piercingxx-branding); set
+the theme once in XX-Launcher, the estate follows.
 
-Free and ad-free. Collects no personal data. Nothing this app sees goes
-anywhere but your own server.
+Free and ad-free. Collects no personal data. Nothing this app sees goes anywhere
+but your own server. [LICENSE](LICENSE) — all rights reserved.

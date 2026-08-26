@@ -686,6 +686,23 @@ Type ramp:
 | Editor body, card preview, list rows | JetBrains Mono | 16 / 13 sp |
 | Labels, chips, eyebrows, sync reasons | JetBrains Mono | 11 sp, +0.08em tracking |
 
+### 12.2 Theme sync
+
+XX-Launcher broadcasts `xx.launcher.THEME_CHANGED` carrying a theme name and a
+resolved background ARGB. XX-Note's exported receiver persists the choice and
+repaints. Eight presets: AMOLED Night, Graphite, Forest Night, Ocean Drift,
+Burgundy, Paper, Mist, Custom. Contrast is derived from the background rather
+than carried in the broadcast, so the light grounds (Paper, Mist) get dark text
+without a second message. There is no in-app picker — the launcher is the
+picker, and the nine family apps all speak this contract, so the theme is set
+once for the estate.
+
+The receiver is exported and unguarded: the family contract carries no
+permission, and the worst a spoofed broadcast buys an attacker is another valid
+ground.
+
+Verified live on the Pixel 6 — repainted to Graphite (`#131316`) and back.
+
 ---
 
 ## 13. Manifest
@@ -708,7 +725,8 @@ first capture, never at launch, and the app is fully usable if it is denied.
 Components: a single `MainActivity` (Compose, `singleTop`), `SyncWorker` and
 `AttachmentWorker` under WorkManager, a `BOOT_COMPLETED` receiver whose only
 job is re-enqueuing the periodic worker, and a `FileProvider` for share-out.
-No exported components beyond the launcher activity. No services of our own.
+No exported components beyond the launcher activity and the theme-sync receiver
+(§12.2). No services of our own.
 
 The manifest is short on purpose and the short list is the claim (R8): one
 network permission, one camera permission, zero storage permissions, and
