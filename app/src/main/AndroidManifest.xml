@@ -9,11 +9,8 @@
     <uses-permission android:name="android.permission.CAMERA"/>
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
-    <!-- Family theme-sync. XX-Launcher sendBroadcast()s with this signature
-         permission; uses-permission is required to receive it. -->
-    <permission
-        android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"
-        android:protectionLevel="signature"/>
+    <!-- Family theme-sync. XX-Launcher defines and sendBroadcast()s with this
+         signature permission; uses-permission is required to receive it. -->
     <uses-permission android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"/>
 
     <!-- androidx.work merges infrastructure permissions into every consumer.
