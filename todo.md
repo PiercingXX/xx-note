@@ -19,7 +19,7 @@ results blank. androidTest never executed. R3 wipe-resync unrecorded.
 
 O2 palette, O3 checklist merge, O4 trash expiry, P2.10 nested vaults out
 of scope, P2.11 `xxnote-server` unwired (option B). v2 reminders / widget /
-tile / share-to-note stay out.
+tile stay out. **Share-to-note is in-scope** (P2 below).
 
 **Still open until WS0 runs:** O1 (Synology Drive “My Drive” vs plain
 shared folder) and the ETag story (§4.2 fallback vs fail-closed).
@@ -45,6 +45,22 @@ Until then: debug only, never the only copy.
 
 ---
 
+## P2 — Share-to-note
+
+One share target. Keep / Obsidian users will hit this.
+
+- [ ] `ACTION_SEND` / `SEND_MULTIPLE` (`text/plain`, `text/*`) creates a
+  new `.md` in the vault (title from subject or first line, body from
+  the extra). Attachments that are files become vault files + a link,
+  or refuse honestly if the type is not text.
+- [ ] Dirty + sync like any other new note. No silent last-writer-wins.
+- [ ] If Setup is unfinished, say so and offer Setup — do not write
+  into a missing vault.
+- **Accept:** share a URL and a selected paragraph from a browser; both
+  become notes you can open after a sync.
+
+---
+
 ## Housekeeping
 
 - [ ] Retire or rewrite `todo-hardening.md` so it does not contradict P0.4/P0.5.
@@ -58,4 +74,4 @@ Until then: debug only, never the only copy.
 - Discarding bytes to look tidy → reject.
 - Skipping WS0 and calling sync done → reject.
 - Wiring `xxnote-server` without a new decision → reject (option B stands).
-- v2 reminders/widget as a drive-by → reject.
+- v2 reminders/widget/tile as a drive-by → reject.
