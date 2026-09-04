@@ -61,6 +61,31 @@ One share target. Keep / Obsidian users will hit this.
 
 ---
 
+## One door / hub (estate — 2026-09-04)
+
+Locked with `skippy-tel-network/todo.md` WS0. Vault can stay Synology
+(or any WebDAV). Estate tel hostname is **one** valid origin. Do not
+replace O1/WS0 NAS probe with an estate-only lock-in.
+
+- [ ] Connection / Setup: user types domain + user/pass (Synology,
+      estate tel `/note/`, or any WebDAV). No `:845x` / `:8448` as the
+      default path.
+  - verify: setup fixture accepts an arbitrary HTTPS origin; default
+    templates do not list those Tailscale ports
+- [ ] If xx-drive hub is up on `127.0.0.1`, use that session for the
+      estate origin (no second host typed). Hub down → stored origin +
+      creds. No crash loop.
+  - verify: hub-present / hub-absent JVM tests; unsigned discovery
+    ignored
+- [ ] Fabric `user_id` when the origin is the estate door. Margaret
+      does not mint. Isolation: user B cannot read user A.
+  - verify: existing isolation tests stay fail-closed
+
+**Stop:** estate-only (forbidding Synology); resurrecting per-app
+Tailscale ports; treating Margaret as the IdP.
+
+---
+
 ## Housekeeping
 
 - [ ] Retire or rewrite `todo-hardening.md` so it does not contradict P0.4/P0.5.
