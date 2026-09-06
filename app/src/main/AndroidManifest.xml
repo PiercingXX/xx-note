@@ -74,6 +74,21 @@
                 <action android:name="android.intent.action.MAIN"/>
                 <category android:name="android.intent.category.LAUNCHER"/>
             </intent-filter>
+            <!-- P2 share-to-note: one target. text/plain and text/* only —
+                 non-text attachments are refused in code rather than silently
+                 dropped. SEND_MULTIPLE uses the same mapping. -->
+            <intent-filter>
+                <action android:name="android.intent.action.SEND"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+                <data android:mimeType="text/*"/>
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SEND_MULTIPLE"/>
+                <category android:name="android.intent.category.DEFAULT"/>
+                <data android:mimeType="text/plain"/>
+                <data android:mimeType="text/*"/>
+            </intent-filter>
         </activity>
 
         <!-- Family-wide theme sync (receiver side): the xx-launcher

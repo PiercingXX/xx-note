@@ -49,14 +49,15 @@ Until then: debug only, never the only copy.
 
 One share target. Keep / Obsidian users will hit this.
 
-- [ ] `ACTION_SEND` / `SEND_MULTIPLE` (`text/plain`, `text/*`) creates a
+- [x] `ACTION_SEND` / `SEND_MULTIPLE` (`text/plain`, `text/*`) creates a
   new `.md` in the vault (title from subject or first line, body from
   the extra). Attachments that are files become vault files + a link,
   or refuse honestly if the type is not text.
-- [ ] Dirty + sync like any other new note. No silent last-writer-wins.
-- [ ] If Setup is unfinished, say so and offer Setup — do not write
-  into a missing vault.
-- **Accept:** share a URL and a selected paragraph from a browser; both
+- [x] Dirty + sync like any other new note. No silent last-writer-wins.
+- [x] If Setup is unfinished and there is no local-only sentinel, say so
+  and offer Setup — do not write into a missing vault. A local-only
+  vault is written.
+- [ ] **Accept:** share a URL and a selected paragraph from a browser; both
   become notes you can open after a sync.
 
 ---

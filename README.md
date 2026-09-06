@@ -81,10 +81,11 @@ database, no credentials ever entered. Everything above is proven by tests on
 a JVM, not by a round trip to a NAS. Treat the server-backed half as
 unverified.
 
-Reminders, widget, tile and share-to-note are v2, with `reminder:` reserved in
-frontmatter so today's vaults stay compatible. Collaboration, drawings, rich
-text and cloud accounts are permanent non-goals, with reasons, in
-[design.md §2](design.md).
+Reminders, widget and tile are v2, with `reminder:` reserved in frontmatter so
+today's vaults stay compatible. Share-to-note is in the app (`ACTION_SEND` /
+`SEND_MULTIPLE` of `text/*` mint a new `.md`); **not proven on a device**.
+Collaboration, drawings, rich text and cloud accounts are permanent non-goals,
+with reasons, in [design.md §2](design.md).
 
 ## More
 

@@ -98,6 +98,13 @@ class AttachmentStore(
     }
 
     /**
+     * Store already-final bytes (share-to-note text files, tests). Skips HEIC
+     * transcode and EXIF rewrite — those belong to the photo pipeline.
+     */
+    suspend fun insertRaw(bytes: ByteArray, ext: String): InsertResult =
+        insertProcessed(bytes, Heic.normalizeExt(ext), width = 0, height = 0)
+
+    /**
      * Hash→dedup→store→record, from already-processed bytes. This is the pure
      * seam behind [insert]: identical logic without HEIC decoding or EXIF
      * rewriting, so the addressing/dedup/path math runs on the JVM with fake

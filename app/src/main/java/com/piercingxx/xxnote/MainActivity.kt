@@ -1,9 +1,11 @@
 package com.piercingxx.xxnote
 
+import android.content.Intent
 import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -30,14 +32,22 @@ import com.piercingxx.xxnote.ui.labels.LabelGridScreen
 import com.piercingxx.xxnote.ui.labels.LabelsScreen
 import com.piercingxx.xxnote.ui.setup.SetupLogic
 import com.piercingxx.xxnote.ui.setup.SetupScreen
+import com.piercingxx.xxnote.ui.share.ShareBlockedScreen
+import com.piercingxx.xxnote.ui.share.ShareIngest
+import com.piercingxx.xxnote.ui.share.ShareIntents
 import com.piercingxx.xxnote.ui.sync.SyncScreen
 import com.piercingxx.xxnote.ui.trash.TrashScreen
 import com.piercingxx.xxnote.ui.theme.ThemeSync
 import com.piercingxx.xxnote.ui.theme.Tokens
 import com.piercingxx.xxnote.ui.theme.XxNoteTheme
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
+
+    private var onIncomingShare: ((Intent) -> Unit)? = null
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         // Family theme sync: load the launcher-synced ground (if any) into
@@ -52,6 +62,18 @@ class MainActivity : ComponentActivity() {
         // opens the grid without one. Setup completion enqueues its own pass
         // on persist().
         var startOnSetup by mutableStateOf<Boolean?>(null)
+        var shareOutcome by mutableStateOf<ShareIngest.Outcome?>(null)
+        var pendingShare by mutableStateOf<ShareIntents.Request?>(null)
+        fun applyShare(request: ShareIntents.Request?) {
+            pendingShare = request
+            if (request == null) return
+            lifecycleScope.launch {
+                shareOutcome = withContext(Dispatchers.IO) {
+                    ShareIntents.ingest(applicationContext, request)
+                }
+            }
+        }
+        onIncomingShare = { incoming -> applyShare(ShareIntents.parse(incoming)) }
         lifecycleScope.launch {
             val db = XxDatabase.getInstance(applicationContext)
             val credential = db.credentialDao().get()
@@ -59,6 +81,14 @@ class MainActivity : ComponentActivity() {
                 db.settingDao().get(SetupLogic.KEY_LOCAL_ONLY),
             )
             if (credential != null) SyncScheduler.ensurePeriodic(applicationContext)
+            val parsed = ShareIntents.parse(intent)
+            pendingShare = parsed
+            val outcome = if (parsed != null) {
+                withContext(Dispatchers.IO) { ShareIntents.ingest(applicationContext, parsed) }
+            } else {
+                null
+            }
+            shareOutcome = outcome
             startOnSetup = SetupLogic.startOnSetup(
                 hasCredential = credential != null,
                 localOnly = localOnly,
@@ -84,19 +114,54 @@ class MainActivity : ComponentActivity() {
             }
             XxNoteTheme {
                 val resolved = startOnSetup
-                if (resolved == null) {
-                    Box(Modifier.fillMaxSize().background(Tokens.Ink))
-                } else {
-                    AppNavHost(startOnSetup = resolved)
+                val share = shareOutcome
+                when {
+                    resolved == null -> Box(Modifier.fillMaxSize().background(Tokens.Ink))
+                    share is ShareIngest.Outcome.NeedSetup -> ShareBlockedScreen(
+                        message = ShareIngest.NEED_SETUP_WORDS,
+                        actionLabel = "open Setup",
+                        onAction = {
+                            shareOutcome = null
+                            startOnSetup = true
+                        },
+                        onClose = { finish() },
+                    )
+                    share is ShareIngest.Outcome.Refused -> ShareBlockedScreen(
+                        message = share.reason,
+                        onClose = { finish() },
+                    )
+                    else -> AppNavHost(
+                        startOnSetup = resolved,
+                        openNoteId = (share as? ShareIngest.Outcome.Created)?.noteId,
+                        onSetupConfigured = {
+                            startOnSetup = false
+                            val pending = pendingShare
+                            if (pending != null) applyShare(pending)
+                        },
+                    )
                 }
             }
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        onIncomingShare?.invoke(intent)
+    }
 }
 
 @Composable
-private fun AppNavHost(startOnSetup: Boolean) {
+private fun AppNavHost(
+    startOnSetup: Boolean,
+    openNoteId: String? = null,
+    onSetupConfigured: () -> Unit = {},
+) {
     val nav = rememberNavController()
+    LaunchedEffect(openNoteId) {
+        val id = openNoteId ?: return@LaunchedEffect
+        nav.navigate(Routes.editor(id))
+    }
     NavHost(
         navController = nav,
         startDestination = if (startOnSetup) Routes.SETUP else Routes.GRID,
@@ -153,6 +218,7 @@ private fun AppNavHost(startOnSetup: Boolean) {
                     nav.navigate(Routes.GRID) {
                         popUpTo(Routes.SETUP) { inclusive = true }
                     }
+                    onSetupConfigured()
                 },
             )
         }

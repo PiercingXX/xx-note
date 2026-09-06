@@ -111,9 +111,9 @@ relative Markdown links, resolvable by any other Markdown reader.
   workstream, and shipping them half-done means missed reminders, which is
   worse than no reminders. Frontmatter reserves the `reminder:` key so v1
   vaults are forward-compatible.
-- **Home-screen widget, quick-settings tile, and share-to-note.** Same
-  ruling: the capture surfaces are the obvious v2, and v1's job is to prove
-  the vault format and the sync engine.
+- **Home-screen widget and quick-settings tile.** Same ruling as reminders:
+  the remaining capture surfaces are v2. Share-to-note is in-scope (P2):
+  `ACTION_SEND` / `SEND_MULTIPLE` of `text/*` mint a new `.md` in the vault.
 - **Collaboration, sharing, and multi-user notes.** Keep's collaborator
   feature needs a server that arbitrates. XX-Note's server is a file share.
   Two people editing one vault get §6's conflict handling and nothing more,
