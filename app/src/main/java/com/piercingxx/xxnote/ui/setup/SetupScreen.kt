@@ -67,6 +67,17 @@ fun SetupScreen(onConfigured: () -> Unit) {
                 Field("host, like nas.tailnet.ts.net", s.host, vm::editHost)
                 Field("port", s.port, vm::editPort, keyboardType = KeyboardType.Number)
                 NavRow(onNext = vm::continueHost, nextLabel = "continue")
+                TextButton(
+                    onClick = { vm.skipLocally(onConfigured) },
+                    enabled = !s.busy,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        "use locally — notes stay on this phone",
+                        style = TextStyle(fontFamily = JetBrainsMono, fontSize = 13.sp, color = Tokens.White50),
+                    )
+                }
+                Hint("WebDAV is optional. Connect a server later from Sync.")
             }
 
             SetupStep.ACCOUNT -> {

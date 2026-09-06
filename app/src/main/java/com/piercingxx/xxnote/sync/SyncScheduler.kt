@@ -1,9 +1,7 @@
 package com.piercingxx.xxnote.sync
 
 import android.content.Context
-import androidx.work.Constraints
 import androidx.work.ExistingPeriodicWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.WorkManager
 import java.util.concurrent.TimeUnit
@@ -21,21 +19,18 @@ import java.util.concurrent.TimeUnit
 object SyncScheduler {
 
     /**
-     * Enqueues the 15-minute network-constrained periodic pass unless an
-     * identical one is already registered. Doze defers it; that is acceptable
-     * and stated (§4.4).
+     * Enqueues the 15-minute periodic pass unless an identical one is already
+     * registered. Doze defers it; that is acceptable and stated (§4.4).
+     * No network constraint: ACCESS_NETWORK_STATE is not declared, so
+     * WorkManager cannot observe connectivity; the engine already fails
+     * closed when the host is unreachable.
      */
     fun ensurePeriodic(context: Context) {
         val request = PeriodicWorkRequestBuilder<SyncWorker>(PERIOD_MINUTES, TimeUnit.MINUTES)
-            .setConstraints(NETWORK)
             .build()
         WorkManager.getInstance(context)
             .enqueueUniquePeriodicWork(UNIQUE_PERIODIC, ExistingPeriodicWorkPolicy.KEEP, request)
     }
-
-    private val NETWORK = Constraints.Builder()
-        .setRequiredNetworkType(NetworkType.CONNECTED)
-        .build()
 
     internal const val UNIQUE_PERIODIC = "xx-note-sync-periodic"
     private const val PERIOD_MINUTES = 15L // WorkManager's floor (§4.4)

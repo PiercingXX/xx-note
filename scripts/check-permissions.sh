@@ -1,12 +1,15 @@
 #!/usr/bin/env bash
 # Hardening #13 / todo.md standing rule: `aapt2 dump permissions` at every WS
-# exit shows INTERNET, ACCESS_NETWORK_STATE, CAMERA, POST_NOTIFICATIONS — and
-# nothing else rots silently. This automates it against the MERGED release
-# manifest: the declared four, WAKE_LOCK + RECEIVE_BOOT_COMPLETED merged in
-# from WorkManager (justified in AndroidManifest.xml), and androidx.core's
+# exit shows INTERNET, CAMERA, THEME_SYNC — and nothing else rots silently.
+# This automates it against the MERGED release manifest: those three, plus
+# WAKE_LOCK + RECEIVE_BOOT_COMPLETED merged in from WorkManager (justified
+# in AndroidManifest.xml), and androidx.core's
 # DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION, which the app must both declare
-# (signature-protected) and self-grant. Any other entry — or a lost entry —
-# fails until the pinned list below is edited deliberately, in the open.
+# (signature-protected) and self-grant. POST_NOTIFICATIONS and
+# ACCESS_NETWORK_STATE are deliberately absent (unused; GrapheneOS would
+# prompt for notifications this app never posts). Any other entry — or a
+# lost entry — fails until the pinned list below is edited deliberately,
+# in the open.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -22,12 +25,11 @@ echo "check-permissions: auditing $MERGED"
 
 # Pinned expected uses-permission set (sorted).
 EXPECTED=$(cat <<'EOF'
-android.permission.ACCESS_NETWORK_STATE
 android.permission.CAMERA
 android.permission.INTERNET
-android.permission.POST_NOTIFICATIONS
 android.permission.RECEIVE_BOOT_COMPLETED
 android.permission.WAKE_LOCK
+com.piercingxx.xxlauncher.permission.THEME_SYNC
 com.piercingxx.xxnote.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION
 EOF
 )
@@ -76,6 +78,6 @@ if ! printf '%s' "$FLAT" | grep -q \
     exit 1
 fi
 
-echo "check-permissions: OK — 7 uses-permissions match the pinned list;"
+echo "check-permissions: OK — 6 uses-permissions match the pinned list;"
 echo "uses-permission-sdk-23 set matches its pinned (empty) list;"
 echo "custom dynamic-receiver permission declared with signature protection."

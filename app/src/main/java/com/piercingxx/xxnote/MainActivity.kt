@@ -28,6 +28,7 @@ import com.piercingxx.xxnote.ui.editor.EditorScreen
 import com.piercingxx.xxnote.ui.grid.GridScreen
 import com.piercingxx.xxnote.ui.labels.LabelGridScreen
 import com.piercingxx.xxnote.ui.labels.LabelsScreen
+import com.piercingxx.xxnote.ui.setup.SetupLogic
 import com.piercingxx.xxnote.ui.setup.SetupScreen
 import com.piercingxx.xxnote.ui.sync.SyncScreen
 import com.piercingxx.xxnote.ui.trash.TrashScreen
@@ -44,17 +45,24 @@ class MainActivity : ComponentActivity() {
         // pre-route frame included — composes on the persisted ground.
         ThemeSync.load(applicationContext)
         // Start-route resolution no longer blocks onCreate (#8): a lifecycleScope
-        // coroutine performs the credential lookup (Room suspend DAOs are
-        // main-safe, so nothing pins Dispatchers here), and until it lands the
-        // UI shows a neutral Ink frame. The same lookup schedules periodic sync
-        // (#3b) whenever a credential row exists; Setup completion enqueues its
-        // own pass on persist().
+        // coroutine performs the credential / local-only lookup (Room suspend
+        // DAOs are main-safe, so nothing pins Dispatchers here), and until it
+        // lands the UI shows a neutral Ink frame. Periodic sync (#3b) is
+        // scheduled only when a credential row exists; a local-only sentinel
+        // opens the grid without one. Setup completion enqueues its own pass
+        // on persist().
         var startOnSetup by mutableStateOf<Boolean?>(null)
         lifecycleScope.launch {
-            val configured =
-                XxDatabase.getInstance(applicationContext).credentialDao().get() != null
-            if (configured) SyncScheduler.ensurePeriodic(applicationContext)
-            startOnSetup = !configured
+            val db = XxDatabase.getInstance(applicationContext)
+            val credential = db.credentialDao().get()
+            val localOnly = SetupLogic.isLocalOnlySentinel(
+                db.settingDao().get(SetupLogic.KEY_LOCAL_ONLY),
+            )
+            if (credential != null) SyncScheduler.ensurePeriodic(applicationContext)
+            startOnSetup = SetupLogic.startOnSetup(
+                hasCredential = credential != null,
+                localOnly = localOnly,
+            )
         }
         setContent {
             // Window chrome follows the active ground: reading activeGround
@@ -112,7 +120,10 @@ private fun AppNavHost(startOnSetup: Boolean) {
             )
         }
         composable(Routes.SYNC) {
-            SyncScreen(onBack = { nav.popBackStack() })
+            SyncScreen(
+                onBack = { nav.popBackStack() },
+                onOpenSetup = { nav.navigate(Routes.SETUP) },
+            )
         }
         composable(Routes.ARCHIVE) {
             ArchiveScreen(onBack = { nav.popBackStack() }, onOpenNote = { id -> nav.navigate(Routes.editor(id)) })

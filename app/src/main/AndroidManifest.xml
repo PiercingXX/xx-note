@@ -2,31 +2,41 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
 
-    <!-- The short list is the claim (R8): one network permission, one camera
-         permission, and nothing that runs on its own schedule except a sync. -->
+    <!-- The short list is the claim (R8): INTERNET to reach the one host,
+         CAMERA for optional capture, THEME_SYNC to receive the launcher
+         broadcast, and nothing that runs on its own schedule except a sync.
+         POST_NOTIFICATIONS is unused — this app never posts — so it is not
+         declared (GrapheneOS would otherwise prompt for a grant that buys
+         nothing). ACCESS_NETWORK_STATE is unused in app code and stripped
+         below when WorkManager merges it. -->
     <uses-permission android:name="android.permission.INTERNET"/>
-    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
     <uses-permission android:name="android.permission.CAMERA"/>
-    <uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
 
     <!-- Family theme-sync. XX-Launcher defines and sendBroadcast()s with this
-         signature permission; uses-permission is required to receive it. -->
+         signature permission; uses-permission is required to receive it.
+         Do NOT declare a <permission> with this name — only xx-launcher may. -->
     <uses-permission android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"/>
 
     <!-- androidx.work merges infrastructure permissions into every consumer.
          FOREGROUND_SERVICE is genuinely unused here: expedited syncs fall back
          to regular work (RUN_AS_NON_EXPEDITED_WORK_REQUEST), never a foreground
          service (§4.4) — stripped to keep the audit line honest.
+         ACCESS_NETWORK_STATE is merged for WorkManager's network-constraint
+         tracker; this app never queries ConnectivityManager, and sync work
+         does not declare a network constraint, so the merge is stripped.
          WAKE_LOCK and RECEIVE_BOOT_COMPLETED remain because periodic sync is
          real: MainActivity enqueues the 15-minute pass at app start whenever a
          credential row exists, and Setup enqueues on completion (design §4.4).
          RECEIVE_BOOT_COMPLETED is WorkManager's boot-persistence mechanism —
          without it the periodic pass would not survive a reboot until the next
-         app open. OPERATOR VETO POINT: if the four-permission claim must be
+         app open. OPERATOR VETO POINT: if the permission claim must be
          absolute, remove these two too and accept that periodic sync waits
          until first app open after a reboot. -->
     <uses-permission
         android:name="android.permission.FOREGROUND_SERVICE"
+        tools:node="remove"/>
+    <uses-permission
+        android:name="android.permission.ACCESS_NETWORK_STATE"
         tools:node="remove"/>
     <!-- deliberately NO storage permissions of any kind (D14): the vault lives
          in filesDir, app-private, invisible to Storage Scopes -->

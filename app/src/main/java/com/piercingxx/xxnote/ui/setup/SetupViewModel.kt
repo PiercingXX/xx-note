@@ -70,6 +70,24 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
 
     fun editDeviceName(value: String) = _state.update { it.copy(deviceName = value) }
 
+    /**
+     * First-run skip: persist the local-only sentinel (no credential row) and
+     * open the vault in filesDir. Periodic sync is not enqueued — there is
+     * nothing to reach. WebDAV Setup remains available later from Sync.
+     */
+    fun skipLocally(onDone: () -> Unit) {
+        if (_state.value.busy) return
+        _state.update { it.copy(busy = true, message = listOf("keeping notes on this phone")) }
+        viewModelScope.launch {
+            withContext(Dispatchers.IO) {
+                XxDatabase.getInstance(appContext).settingDao().put(
+                    SettingEntity(key = SetupLogic.KEY_LOCAL_ONLY, value = SetupLogic.LOCAL_ONLY_VALUE),
+                )
+            }
+            onDone()
+        }
+    }
+
     // ---- navigation ------------------------------------------------------------
 
     fun back() {
@@ -401,6 +419,7 @@ class SetupViewModel(private val appContext: Context) : ViewModel() {
         for ((key, value) in payload.settings) {
             db.settingDao().put(SettingEntity(key = key, value = value))
         }
+        db.settingDao().delete(SetupLogic.KEY_LOCAL_ONLY)
         // Hardening #6: any cached engine still signs with the OLD credential —
         // correcting a wrong host or password must take effect immediately,
         // not after the next process death.

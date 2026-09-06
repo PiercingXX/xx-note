@@ -50,7 +50,7 @@ import com.piercingxx.xxnote.ui.theme.Tokens
  * bottom, in that order — no spinner anywhere, every state explained.
  */
 @Composable
-fun SyncScreen(onBack: () -> Unit) {
+fun SyncScreen(onBack: () -> Unit, onOpenSetup: () -> Unit = {}) {
     val vm: SyncViewModel = viewModel()
     // Re-query on (re)entry so state never outlives reality.
     LaunchedEffect(Unit) { vm.refresh() }
@@ -96,6 +96,15 @@ fun SyncScreen(onBack: () -> Unit) {
                     color = if (state.tone == SyncViewModel.Tone.ATTENTION) Tokens.Warn else Tokens.White90,
                 ),
             )
+            if (state.headline == Wording.NOT_SET_UP) {
+                Spacer(Modifier.height(8.dp))
+                TextButton(onClick = onOpenSetup) {
+                    Text(
+                        "set up WebDAV",
+                        style = bodyStyle(13.sp, Tokens.White90),
+                    )
+                }
+            }
 
             // Failed disk writes speak here, in words, until the next attempt (§15).
             state.notice?.let { notice ->

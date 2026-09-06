@@ -50,6 +50,21 @@ object SetupLogic {
     const val KEY_USER = "user"
     const val KEY_DEVICE_NAME = "device_name"
     const val KEY_ETAG_MODE = "etag_mode"
+    /**
+     * Sentinel written when first-run skips WebDAV. Vault lives in filesDir
+     * with no credential row; MainActivity must not bounce back to Setup.
+     */
+    const val KEY_LOCAL_ONLY = "local_only"
+    const val LOCAL_ONLY_VALUE = "1"
+
+    fun isLocalOnlySentinel(value: String?): Boolean = value == LOCAL_ONLY_VALUE
+
+    /**
+     * First-run routing: Setup is the start destination only when there is
+     * neither a WebDAV credential nor a local-only sentinel.
+     */
+    fun startOnSetup(hasCredential: Boolean, localOnly: Boolean): Boolean =
+        !hasCredential && !localOnly
 
     /** §4.2 candidate prefixes for the vault, probed with PROPFIND Depth:1 at step 4. */
     val PREFIX_CANDIDATES = listOf(

@@ -42,6 +42,14 @@ Transport is WebDAV to a Synology over Tailscale, behind a `RemoteFiles` port.
 [`server/`](server/README.md) holds `xxnote-server`, a static Go binary serving
 the same vault over estate fabric tokens. It mirrors the port 1:1, unwired.
 
+## Local-only
+
+WebDAV setup is optional. First launch still opens Setup so you can point at a
+NAS; **use locally** skips that, writes a local-only sentinel, and opens the
+note grid against `filesDir`. No credentials are stored and periodic sync does
+not run. Connect a server later from Sync. Revoke Network on GrapheneOS and
+you still have the same local notes app.
+
 ## The network permission
 
 The rest of the family declares no `INTERNET`. XX-Note cannot — reaching your
@@ -49,15 +57,15 @@ own server requires it, and pretending otherwise would be the first dishonest
 thing in this repo. The honest version: one host, no third party.
 `OneHostInterceptor` throws before a socket opens for anything but the
 configured origin, cleartext is forbidden everywhere, and CI fails the build on
-permission drift. Revoke Network on GrapheneOS and you still have a working
-local notes app that says so.
+permission drift. `POST_NOTIFICATIONS` and `ACCESS_NETWORK_STATE` are not
+declared: this app never posts notifications and never queries connectivity.
 
 ## Build
 
 ```bash
 export ANDROID_HOME=$HOME/Android/Sdk
 export JAVA_HOME=$HOME/tools/jdk-21.0.12.1+1
-./gradlew testDebugUnitTest :core:test   # 675 green, 1 deliberate skip
+./gradlew testDebugUnitTest :core:test   # 680 green, 1 deliberate skip
 ./gradlew :app:assembleRelease           # 3.8 MB, R8 on, unsigned
 cd server && go test ./...               # 19 green, stdlib only
 ```
@@ -66,11 +74,12 @@ SDK 35, `minSdk 31`. Test device is a Pixel 6 on GrapheneOS.
 
 ## Status 🧪
 
-**It installs, launches, and draws its setup screen. That is the entire list of
-what is proven on a phone.** Sync has never run against a real server from a
-device: no notes in the database, no credentials ever entered. Everything above
-is proven by tests on a JVM, not by a round trip to a NAS. Treat the
-server-backed half as unverified.
+**It installs, launches, and draws its setup screen. Use locally opens the
+grid without a server. That is the entire list of what is proven on a phone.**
+Sync has never run against a real server from a device: no notes in the
+database, no credentials ever entered. Everything above is proven by tests on
+a JVM, not by a round trip to a NAS. Treat the server-backed half as
+unverified.
 
 Reminders, widget, tile and share-to-note are v2, with `reminder:` reserved in
 frontmatter so today's vaults stay compatible. Collaboration, drawings, rich

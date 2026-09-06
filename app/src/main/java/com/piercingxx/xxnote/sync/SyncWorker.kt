@@ -3,10 +3,8 @@ package com.piercingxx.xxnote.sync
 import android.content.Context
 import android.os.Build
 import android.security.keystore.KeyPermanentlyInvalidatedException
-import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
-import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.OutOfQuotaPolicy
 import androidx.work.WorkManager
@@ -173,7 +171,6 @@ class SyncWorker(
             if (deferToRunningPass()) return
             val request = OneTimeWorkRequestBuilder<SyncWorker>()
                 .setExpedited(OutOfQuotaPolicy.RUN_AS_NON_EXPEDITED_WORK_REQUEST)
-                .setConstraints(NETWORK)
                 .build()
             // M5: APPEND_OR_REPLACE, not KEEP. Under KEEP a save landing while
             // a sync pass was already queued silently dropped its follow-up
@@ -187,10 +184,6 @@ class SyncWorker(
         }
 
         fun enqueuePeriodic(context: Context) = SyncScheduler.ensurePeriodic(context)
-
-        private val NETWORK = Constraints.Builder()
-            .setRequiredNetworkType(NetworkType.CONNECTED)
-            .build()
 
         private const val UNIQUE_ONESHOT = "xx-note-sync-once"
 

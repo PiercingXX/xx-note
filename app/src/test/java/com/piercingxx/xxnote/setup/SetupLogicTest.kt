@@ -263,6 +263,23 @@ class SetupLogicTest {
     }
 
     @Test
+    fun `first-run starts on Setup only without a credential or local-only sentinel`() {
+        assertTrue(SetupLogic.startOnSetup(hasCredential = false, localOnly = false))
+        assertTrue(!SetupLogic.startOnSetup(hasCredential = true, localOnly = false))
+        assertTrue(!SetupLogic.startOnSetup(hasCredential = false, localOnly = true))
+        assertTrue(!SetupLogic.startOnSetup(hasCredential = true, localOnly = true))
+    }
+
+    @Test
+    fun `local-only sentinel is the stored 1 and nothing else`() {
+        assertTrue(SetupLogic.isLocalOnlySentinel(SetupLogic.LOCAL_ONLY_VALUE))
+        assertTrue(!SetupLogic.isLocalOnlySentinel(null))
+        assertTrue(!SetupLogic.isLocalOnlySentinel(""))
+        assertTrue(!SetupLogic.isLocalOnlySentinel("true"))
+        assertEquals("local_only", SetupLogic.KEY_LOCAL_ONLY)
+    }
+
+    @Test
     fun `stored keys stay aligned with what SyncGraph reads`() {
         // KEY_ETAG_MODE is written by Setup and read by SyncGraph — same bytes
         // or the promised mode silently stops being enforced.

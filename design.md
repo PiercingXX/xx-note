@@ -711,9 +711,10 @@ Verified live on the Pixel 6 — repainted to Graphite (`#131316`) and back.
 
 ```xml
 <uses-permission android:name="android.permission.INTERNET"/>
-<uses-permission android:name="android.permission.ACCESS_NETWORK_STATE"/>
 <uses-permission android:name="android.permission.CAMERA"/>
-<uses-permission android:name="android.permission.POST_NOTIFICATIONS"/>
+<uses-permission android:name="com.piercingxx.xxlauncher.permission.THEME_SYNC"/>
+<!-- deliberately NO POST_NOTIFICATIONS — the app never posts -->
+<!-- deliberately NO ACCESS_NETWORK_STATE — unused; WorkManager merge stripped -->
 <!-- deliberately NO storage permissions of any kind (D14) -->
 <!-- deliberately NO exact alarms — reminders are a v1 non-goal -->
 ```
@@ -731,8 +732,9 @@ No exported components beyond the launcher activity and the theme-sync receiver
 (§12.2). No services of our own.
 
 The manifest is short on purpose and the short list is the claim (R8): one
-network permission, one camera permission, zero storage permissions, and
-nothing that runs on its own schedule except a sync.
+network permission (`INTERNET`), one camera permission, the family
+`THEME_SYNC` uses-permission, zero storage permissions, and nothing that
+runs on its own schedule except a sync.
 
 ---
 

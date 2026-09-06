@@ -91,6 +91,32 @@ class ThemeSyncReceiverTest {
     }
 
     @Test
+    fun `manifest uses THEME_SYNC and does not declare it`() {
+        assertTrue(
+            "uses-permission THEME_SYNC is required to receive the launcher broadcast",
+            manifestText.contains(
+                "<uses-permission android:name=\"com.piercingxx.xxlauncher.permission.THEME_SYNC\"",
+            ),
+        )
+        assertTrue(
+            "only xx-launcher may declare THEME_SYNC — this app uses-permission it",
+            !Regex(
+                """<permission\b[^>]*android:name="com\.piercingxx\.xxlauncher\.permission\.THEME_SYNC"""",
+                RegexOption.DOT_MATCHES_ALL,
+            ).containsMatchIn(manifestText),
+        )
+        val receiverBlock = Regex(
+            """<receiver\b[^>]*ThemeSyncReceiver[\s\S]*?</receiver>""",
+        ).find(manifestText)?.value ?: manifestText
+        assertTrue(
+            "ThemeSyncReceiver must carry android:permission=...THEME_SYNC",
+            receiverBlock.contains(
+                "android:permission=\"com.piercingxx.xxlauncher.permission.THEME_SYNC\"",
+            ),
+        )
+    }
+
+    @Test
     fun `declared receiver name resolves to a class`() {
         Class.forName("com.piercingxx.xxnote.ui.theme.ThemeSyncReceiver")
     }
