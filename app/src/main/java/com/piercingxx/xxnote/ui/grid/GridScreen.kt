@@ -1,5 +1,6 @@
 package com.piercingxx.xxnote.ui.grid
 
+import android.app.Activity
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -61,6 +62,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.FocusRequester
@@ -83,6 +85,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.piercingxx.xxnote.core.NoteType
+import com.piercingxx.xxnote.log.LogsUi
 import com.piercingxx.xxnote.ui.theme.JetBrainsMono
 import com.piercingxx.xxnote.ui.theme.SpaceMono
 import com.piercingxx.xxnote.ui.theme.Tokens
@@ -108,6 +111,7 @@ fun GridScreen(
 ) {
     val vm: GridViewModel = viewModel()
     val state by vm.state.collectAsState()
+    val context = LocalContext.current
 
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
@@ -156,6 +160,10 @@ fun GridScreen(
                 onSync = {
                     scope.launch { drawerState.close() }
                     onOpenSync()
+                },
+                onLogs = {
+                    scope.launch { drawerState.close() }
+                    (context as? Activity)?.let { LogsUi.show(it) }
                 },
             )
         },
@@ -560,6 +568,7 @@ private fun DrawerPanel(
     onTrash: () -> Unit,
     onLabels: () -> Unit,
     onSync: () -> Unit,
+    onLogs: () -> Unit,
 ) {
     ModalDrawerSheet(drawerContainerColor = Tokens.Ink) {
         Column(modifier = Modifier.fillMaxWidth().padding(horizontal = 20.dp)) {
@@ -592,6 +601,7 @@ private fun DrawerPanel(
             DrawerRow("TRASH", current = false, onClick = onTrash)
             DrawerRow("LABELS", current = false, onClick = onLabels)
             DrawerRow("SYNC", current = false, onClick = onSync)
+            DrawerRow("LOGS", current = false, onClick = onLogs)
         }
     }
 }
